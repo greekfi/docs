@@ -1,0 +1,316 @@
+/**
+ * Greek.fi docs theme — Bebop-inspired, blues + orange.
+ * Palette references:
+ *   Dark Blue   #2F50FF   primary action
+ *   Light Blue  #35F3FF   info / accent
+ *   Orange      #FF8300   highlight / CTA
+ *   Black       #171717   dark bg
+ *   Grey        #6A6A6A   muted
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+:root {
+  /* Typography — sans display, serif body */
+  --ifm-font-family-base:
+    "Newsreader", Georgia, "Times New Roman", serif;
+  --greek-font-display:
+    "Space Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --ifm-heading-font-family: var(--greek-font-display);
+  --ifm-heading-font-weight: 600;
+  --ifm-font-size-base: 17px;
+  --ifm-line-height-base: 1.7;
+
+  /* Primary: Dark Blue */
+  --ifm-color-primary: #2f50ff;
+  --ifm-color-primary-dark: #1638f0;
+  --ifm-color-primary-darker: #1234e2;
+  --ifm-color-primary-darkest: #0f2bba;
+  --ifm-color-primary-light: #4a68ff;
+  --ifm-color-primary-lighter: #5c77ff;
+  --ifm-color-primary-lightest: #8a9dff;
+
+  /* Accent: Orange (call-to-action, emphasis) */
+  --greek-accent: #ff8300;
+  --greek-accent-dark: #e07400;
+  --greek-accent-light: #ffa040;
+
+  /* Info: Light Blue */
+  --greek-info: #35f3ff;
+
+  /* Text + surface */
+  --ifm-background-color: #ffffff;
+  --ifm-background-surface-color: #fafbff;
+  --ifm-font-color-base: #171717;
+  --ifm-color-secondary-darkest: #6a6a6a;
+
+  /* Code */
+  --ifm-code-font-size: 92%;
+  --ifm-code-background: #f4f6ff;
+  --docusaurus-highlighted-code-line-bg: rgba(47, 80, 255, 0.08);
+
+  /* Navbar + footer */
+  --ifm-navbar-background-color: #ffffff;
+  --ifm-navbar-shadow: 0 1px 2px 0 rgba(23, 23, 23, 0.06);
+  --ifm-footer-background-color: #171717;
+  --ifm-footer-color: #e4e7ff;
+  --ifm-footer-link-color: #8a9dff;
+  --ifm-footer-title-color: #ffffff;
+
+  /* Links — use accent orange on hover so prose feels Bebop-y */
+  --ifm-link-color: var(--ifm-color-primary);
+  --ifm-link-hover-color: var(--greek-accent);
+
+  /* Admonitions */
+  --ifm-color-info: var(--greek-info);
+  --ifm-color-warning: var(--greek-accent);
+}
+
+[data-theme="dark"] {
+  /* Primary: lighter blue so it pops on black bg */
+  --ifm-color-primary: #5c77ff;
+  --ifm-color-primary-dark: #3c5aff;
+  --ifm-color-primary-darker: #2c4cff;
+  --ifm-color-primary-darkest: #0f2bba;
+  --ifm-color-primary-light: #7d92ff;
+  --ifm-color-primary-lighter: #8fa1ff;
+  --ifm-color-primary-lightest: #b4c0ff;
+
+  /* Text + surface */
+  --ifm-background-color: #171717;
+  --ifm-background-surface-color: #1f1f21;
+  --ifm-font-color-base: #f4f6ff;
+
+  /* Code */
+  --ifm-code-background: #222228;
+  --docusaurus-highlighted-code-line-bg: rgba(92, 119, 255, 0.15);
+
+  /* Navbar + footer */
+  --ifm-navbar-background-color: #171717;
+  --ifm-navbar-shadow: 0 1px 0 0 #2a2a2f;
+  --ifm-footer-background-color: #0f0f0f;
+  --ifm-footer-color: #c4c8e0;
+  --ifm-footer-link-color: #8fa1ff;
+  --ifm-footer-title-color: #ffffff;
+
+  /* Links */
+  --ifm-link-color: var(--ifm-color-primary-lighter);
+  --ifm-link-hover-color: var(--greek-accent-light);
+}
+
+/* ───────────── custom touches ───────────── */
+
+/* Sharper, Bebop-ish buttons */
+.button--primary {
+  background: var(--ifm-color-primary);
+  border-color: var(--ifm-color-primary);
+  color: #ffffff;
+}
+.button--primary:hover {
+  background: var(--greek-accent);
+  border-color: var(--greek-accent);
+  color: #171717;
+}
+
+/* Navbar title — Space Grotesk wordmark, regular weight */
+.navbar__title {
+  font-family: var(--greek-font-display);
+  font-weight: 400;
+  font-size: 1.4rem;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+
+/* Headings: Space Grotesk, tight + confident */
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+h1 { font-size: 2.4rem; font-weight: 500; }
+h2 { font-size: 1.8rem; font-weight: 500; }
+h3 { font-size: 1.35rem; font-weight: 500; }
+h4 { font-size: 1.1rem; font-weight: 500; }
+
+/* Body — Newsreader */
+article p, article li {
+  font-weight: 400;
+}
+em { font-style: italic; }
+
+/* Footer titles */
+.footer__title {
+  font-family: var(--greek-font-display);
+  font-weight: 600;
+  font-size: 1rem;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+}
+
+/* Link underlines on hover, orange */
+a:hover {
+  text-decoration-color: var(--greek-accent);
+}
+
+/* Code block borders subtle blue */
+div[class^="codeBlockContainer"] {
+  border: 1px solid rgba(47, 80, 255, 0.12);
+}
+[data-theme="dark"] div[class^="codeBlockContainer"] {
+  border: 1px solid rgba(92, 119, 255, 0.18);
+}
+
+/* Inline code: tint with blue, keep legible */
+code {
+  color: var(--ifm-color-primary-darker);
+  background: var(--ifm-code-background);
+  border: 1px solid rgba(47, 80, 255, 0.08);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+[data-theme="dark"] code {
+  color: var(--ifm-color-primary-lighter);
+  border-color: rgba(92, 119, 255, 0.12);
+}
+
+/* Admonitions: info = light blue, warning = orange */
+.admonition.alert--info {
+  --ifm-alert-background-color: rgba(53, 243, 255, 0.08);
+  --ifm-alert-border-color: var(--greek-info);
+}
+.admonition.alert--warning {
+  --ifm-alert-background-color: rgba(255, 131, 0, 0.08);
+  --ifm-alert-border-color: var(--greek-accent);
+}
+
+/* Table header — subtle blue tint */
+table thead tr {
+  background: rgba(47, 80, 255, 0.06);
+}
+[data-theme="dark"] table thead tr {
+  background: rgba(92, 119, 255, 0.08);
+}
+
+/* Selection */
+::selection {
+  background: var(--greek-accent);
+  color: #171717;
+}
+[data-theme="dark"] ::selection {
+  background: var(--greek-accent);
+  color: #171717;
+}
+
+/* ───────────── layout: top tabs + left sidebar accordion ───────────── */
+
+/* Desktop right-hand TOC is now rendered inside the left sidebar instead */
+.theme-doc-toc-desktop {
+  display: none;
+}
+
+/* Give the sidebar a touch more breathing room */
+.theme-doc-sidebar-container {
+  border-right: 1px solid rgba(47, 80, 255, 0.1);
+}
+[data-theme="dark"] .theme-doc-sidebar-container {
+  border-right-color: rgba(92, 119, 255, 0.15);
+}
+
+/* Section links in the sidebar — look like section headers, not bullet links */
+.theme-doc-sidebar-menu > .menu__list-item > .menu__link {
+  font-family: var(--greek-font-display);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--ifm-color-primary);
+}
+.theme-doc-sidebar-menu > .menu__list-item > .menu__link:hover {
+  color: var(--greek-accent);
+  background: rgba(47, 80, 255, 0.06);
+}
+.theme-doc-sidebar-menu > .menu__list-item > .menu__link--active,
+.theme-doc-sidebar-menu > .menu__list-item > .menu__link--active:hover {
+  color: var(--greek-accent);
+  background: rgba(255, 131, 0, 0.08);
+}
+[data-theme="dark"] .theme-doc-sidebar-menu > .menu__list-item > .menu__link {
+  color: var(--greek-info);
+}
+[data-theme="dark"] .theme-doc-sidebar-menu > .menu__list-item > .menu__link:hover {
+  color: var(--greek-accent-light);
+  background: rgba(53, 243, 255, 0.1);
+}
+[data-theme="dark"] .theme-doc-sidebar-menu > .menu__list-item > .menu__link--active,
+[data-theme="dark"] .theme-doc-sidebar-menu > .menu__list-item > .menu__link--active:hover {
+  color: var(--greek-accent-light);
+  background: rgba(255, 131, 0, 0.12);
+}
+
+/* TOC nested under the active section — indented, quieter type */
+.sidebar-toc-list {
+  list-style: none;
+  padding-left: 0.75rem;
+  margin: 0.25rem 0 0.75rem;
+  border-left: 2px solid rgba(47, 80, 255, 0.15);
+}
+[data-theme="dark"] .sidebar-toc-list {
+  border-left-color: rgba(92, 119, 255, 0.2);
+}
+.sidebar-toc-list .menu__list-item {
+  margin: 0;
+}
+.sidebar-toc-link {
+  font-family: var(--ifm-font-family-base);
+  font-size: 0.9rem;
+  font-weight: 400;
+  line-height: 1.4;
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+  padding-right: 0.5rem;
+  color: #1a1a1a;
+}
+.sidebar-toc-link:hover {
+  color: var(--ifm-color-primary);
+  background: rgba(47, 80, 255, 0.06);
+}
+.sidebar-toc-link--active {
+  color: var(--greek-accent-dark);
+  font-weight: 500;
+  background: rgba(255, 131, 0, 0.08);
+}
+[data-theme="dark"] .sidebar-toc-link {
+  color: #f0f0f0;
+}
+[data-theme="dark"] .sidebar-toc-link:hover {
+  color: var(--ifm-color-primary-lightest);
+  background: rgba(92, 119, 255, 0.12);
+}
+[data-theme="dark"] .sidebar-toc-link--active {
+  color: var(--greek-accent-light);
+  background: rgba(255, 131, 0, 0.12);
+}
+
+/* Navbar tabs — make section items read as tabs with an active underline */
+.navbar__items .navbar__link {
+  font-family: var(--greek-font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.navbar__items .navbar__link:hover {
+  border-bottom-color: rgba(47, 80, 255, 0.3);
+  background: transparent;
+}
+.navbar__items .navbar__link--active,
+.navbar__items .navbar__link--active:hover {
+  border-bottom-color: var(--greek-accent);
+  color: var(--ifm-font-color-base);
+  background: transparent;
+}
+[data-theme="dark"] .navbar__items .navbar__link--active,
+[data-theme="dark"] .navbar__items .navbar__link--active:hover {
+  color: var(--ifm-font-color-base);
+}

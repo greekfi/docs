@@ -1,0 +1,27 @@
+# Dependencies
+/node_modules
+
+# Production
+/build
+
+# Include lockfile here (the repo root's .gitignore excludes package-lock.json)
+!/package-lock.json
+
+# Generated files
+.docusaurus
+.cache-loader
+
+# Auto-generated contract reference (run `yarn docs:gen` at the repo root to refresh).
+# Commit the source NatSpec, not the derived page.
+/docs/api.md
+
+# Misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

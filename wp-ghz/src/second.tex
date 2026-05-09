@@ -1,0 +1,146 @@
+\title{AMMO - Automated Market Maker for Options}
+
+\author{Mahmoud Lababidi}
+\email{ml@gigahertz.fi}
+\affiliation{%
+Gigahertz Fi\\
+}
+
+\date{June 26, 2025}
+
+\begin{abstract}
+We present AMMO, the Automated Market Maker for American-style Options created through the Greek Protocol. 
+While most AMMs determine prices through quantity-based and tick-based pricing, 
+AMMO differs in that the price is determined by the Black–Scholes equation,
+which primarily depends on the price of the underlying asset, time to expiry, and volatility as inputs. 
+AMMO also allows for variable spreads provided by Liquidity Providers, enabling a trade-off between margin capture and fill probability. 
+Because the AMM integrates with the GreekFi Options Protocol, where the underlying asset can be collateralized into an option just-in-time, 
+it can provide an option at any strike and expiry from a shared liquidity pool without fragmenting depth across markets.
+\end{abstract}
+
+\maketitle
+
+\section{\label{sec:introduction}Introduction}
+
+The crypto derivatives market has grown rapidly with the rise of Deribit, Hyperliquid, Coinbase Futures, Binance, and others.
+These platforms have proven that demand for derivatives is strong and growing.
+One area still underrepresented is a decentralized, on-chain approach to options — particularly 
+where tokenized options products can be used in a composable, permissionless manner.
+The GreekFi Options Protocol provides that composability, enabling a secondary market for these options. 
+
+Inspired by the automated and decentralized nature of AMMs and perpetual markets, 
+we introduce the Automated Market Maker for American Options (AMMO).
+AMMO is an oracle-driven market where option prices are determined directly by the Black–Scholes formula.
+
+\section{Motivation}
+
+While $xy=k$ AMMs are one of the most revolutionary innovations in decentralized finance, 
+their structure does not meet the liquidity requirements for options. 
+In a typical AMM, slippage is on the order of $\delta x / x$, 
+where $\delta x$ is the quantity of tokens swapped in and $x$ is the liquidity provider's position.
+If 500 WETH (approximately \$2M USD at the time of writing) is distributed and collateralized across 7 expiration dates and 7 strikes (both considered low) with 10 option tokens each, 
+purchasing just one token results in 10\% slippage — a level that is large and operationally untenable.
+
+If a traditional LP curve cannot provide efficient option pricing, the question becomes: where will the price come from?
+Looking at existing options markets, the answer lies in the core pricing formula — Black–Scholes.
+
+\section{Automated Market Making}
+
+\subsubsection{Black–Scholes Pricing}
+
+In $xy=k$ AMMs, swap prices are determined by token ratios. 
+For options, we can instead use the current state of the market to dictate prices through the Black–Scholes Equation (BSE).
+
+While the full mathematical background of the BSE is outside our scope, this table defines the variables we use.
+We normalize the formula by using the $K_S = K / S_t$ ratio, which simplifies calculations and provides intuitive insight into pricing.
+We also use $\tau$ to represent the time remaining in the option.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|p{2cm}|p{5cm}|}
+\hline
+\textbf{Var} & \textbf{Description} \\
+\hline
+$V$  & Option price or premium \\
+\hline
+$S$ & Underlying price \\
+\hline
+$K$ & Strike price \\
+\hline
+$K_S = K/S_{t}$ & Strike-to-underlying ratio \\
+\hline
+$r$ & Risk-free rate of return \\
+\hline
+$\sigma$ & Volatility \\
+\hline
+$\tau=T_0-t$ & Time remaining until expiration \\
+\hline
+\end{tabular}
+\caption{Options Variables}
+\label{tab:functions}
+\end{table}
+
+The normalized price (relative to $S$) of a Call Option is:
+\begin{equation}
+{\displaystyle {
+    \begin{aligned}
+        C(K_S,\sigma,\tau)&=\mathcal{N}(d_{+})-\mathcal{N}(d_{-})e^{-r\tau}K_S\\
+    \end{aligned}}}
+\end{equation}
+and for a Put Option:
+\begin{equation}
+{\displaystyle {
+    \begin{aligned}
+        P(K_S,\sigma,\tau) &= \mathcal{N}(-d_{-}) - \mathcal{N}(-d_{+})\,e^{-r\tau}K_S
+    \end{aligned}}}
+\end{equation}
+
+where:
+\begin{equation}
+{\displaystyle {
+    \begin{aligned}
+        d_{\pm}&={{\sigma^{-1} { {\tau}^{-1/2}}}}\left[-\ln \left({K_S}\right)+r\tau\pm{ {\sigma ^{2}\tau}/{2}}\right]\\
+    \end{aligned}}}
+\end{equation}
+
+In our AMM, the option price depends on four key inputs:  
+$\tau$ — time to expiry,  
+$K_S$ — strike-to-underlying ratio,  
+$r$ — risk-free rate, and  
+$\sigma$ — volatility.  
+The first three are straightforward to source from trusted on-chain oracles. Volatility is the most sensitive to incorrect estimation.
+
+\subsubsection{Volatility}
+
+While historical volatility measures past price variance, we use implied volatility (IV) — a forward-looking measure embedded in option prices that reflects the market’s expectations of future movement. IV captures anticipated volatility as well as risk premia and supply–demand imbalances across strikes and maturities.
+
+To obtain $\sigma$, we have two primary approaches:
+\begin{itemize}
+\item Use an on-chain IV data provider, sourcing implied volatility directly from an existing oracle.
+\item Construct an IV surface on-chain by aggregating market data from multiple liquid venues, inferring IV across a range of strikes and maturities, and fitting these observations into a smoothed, continuous surface.
+\end{itemize}
+
+In both cases, the IV surface is updated continuously, ensuring the AMM’s Black–Scholes engine prices options in alignment with prevailing market consensus rather than static or backward-looking measures. This surface captures skew, term structure, and other structural characteristics observed in professional derivatives markets.
+
+This architecture also enables iterative improvements to pricing logic, such as integrating alternative volatility models or external algorithmic pricing providers. This allows segmentation between liquidity provision and pricing — a model that could enable revenue sharing with third-party market makers. Full on-chain transparency of calculations is possible, though any related MEV implications are considered out-of-scope for the current iteration.
+
+\subsubsection{Spreads and Fees}
+
+In both traditional and on-chain markets, spreads and fees are not just operational parameters — they are key profitability levers.
+Bid–ask spreads give market makers the cushion to monetize liquidity and manage risk. In our AMM, spreads can be programmatically tuned to market conditions: tightening them can drive volume, while widening them can mitigate adverse selection and increase per-trade margins.
+
+Fees play a similar strategic role. AMM research shows they directly influence market structure; higher fees can compress effective spreads by increasing arbitrage incentives, while lower fees encourage tighter quoting and retail flow. By capturing a portion of the value that would otherwise go to arbitrageurs, fee adjustments allow the protocol to internalize more PnL without sacrificing competitiveness. In effect, fees function as an adaptive spread overlay, enabling the AMM to balance growth, liquidity, and revenue dynamically.
+
+\subsubsection{Liquidity Pooling}
+
+Instead of fragmenting liquidity across multiple LP positions, we consolidate all collateral into a single pool — maximizing capital efficiency and ensuring deep liquidity for any strike or expiry. All options written against this pool are fully collateralized, eliminating counterparty risk and guaranteeing payout integrity.
+
+Options are minted just-in-time (JIT) via the Greek Options Protocol. When a buyer selects strike and expiry, the AMM wraps the underlying collateral into two tokens moments before execution:
+\begin{itemize}
+\item \textbf{Option Token} — delivered to the buyer for the purchase price.
+\item \textbf{Redemption Token} — retained by the AMM to reclaim collateral post-expiry or upon exercise.
+\end{itemize}
+
+The same process applies when a seller writes a covered option into the AMM: they deposit collateral, mint both tokens, and swap the Option Token to the AMM for an upfront premium, while retaining the Redemption Token as their collateral claim.
+
+By pooling collateral and leveraging JIT minting, the AMM can support any strike and expiry on demand without idle capital locked in pre-minted positions. This design unlocks efficient liquidity deployment, lowers LP opportunity cost, and allows the protocol to scale without fragmenting market depth.
