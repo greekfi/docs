@@ -1,0 +1,71 @@
+name: Bump pin in protocol
+
+# On every push to docs main, push a "Bump docs to <sha>" commit
+# directly to greekfi/protocol main. That commit changes the `docs`
+# gitlink, which triggers protocol's docs.yml workflow → which builds
+# and deploys the new docs to GitHub Pages.
+#
+# Why this lives here (and not in protocol):
+#   The publish pipeline must run where both repos are present, because
+#   docs/scripts/gen-reference.mjs reads `forge doc` output from
+#   protocol/foundry/. So protocol owns the publish step; this repo
+#   only has to tell protocol "bump the pin and re-publish."
+#
+# Setup:
+#   greekfi/docs > Settings > Secrets and variables > Actions
+#   → add secret `PROTOCOL_BUMP_PAT`:
+#     - PAT with `repo` (classic) OR fine-grained with `contents: write`
+#       on greekfi/protocol.
+#     - Owner of the PAT must have write access to protocol main.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: bump-protocol-pin
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout greekfi/protocol main
+        uses: actions/checkout@v6
+        with:
+          repository: greekfi/protocol
+          token: ${{ secrets.PROTOCOL_BUMP_PAT }}
+          ref: main
+          submodules: false
+          # Need full history to push without --force.
+          fetch-depth: 0
+
+      - name: Configure git identity
+        run: |
+          git config user.name "greekfi-docs-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Bump docs submodule to latest greekfi/docs main
+        run: |
+          # Init the docs submodule pointer, then check out latest main
+          # of greekfi/docs inside it.
+          git -c url."https://github.com/".insteadOf="git@github.com:" \
+            submodule update --init docs
+          git -C docs fetch origin main
+          git -C docs checkout origin/main
+          git add docs
+
+      - name: Commit and push if pin changed
+        run: |
+          if git diff --cached --quiet; then
+            echo "Pin already at greekfi/docs $(git -C docs rev-parse --short HEAD) — nothing to do."
+            exit 0
+          fi
+          docs_sha="$(git -C docs rev-parse --short HEAD)"
+          git commit -m "Bump docs submodule to ${docs_sha}
+
+Auto-bumped by greekfi/docs CI after push to main.
+Source: ${{ github.event.repository.html_url }}/commit/${{ github.sha }}
+"
+          git push origin main
