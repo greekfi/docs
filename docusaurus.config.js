@@ -15,7 +15,7 @@ const config = {
   baseUrl: "/",
 
   organizationName: "greekfi",
-  projectName: "protocol",
+  projectName: "docs",
 
   onBrokenLinks: "throw",
   markdown: {
@@ -37,7 +37,7 @@ const config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.js",
-          editUrl: "https://github.com/greekfi/protocol/tree/main/docs/",
+          editUrl: "https://github.com/greekfi/docs/tree/main/",
         },
         blog: false,
         theme: {
