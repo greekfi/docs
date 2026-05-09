@@ -11,9 +11,11 @@
 .docusaurus
 .cache-loader
 
-# Auto-generated contract reference (run `yarn docs:gen` at the repo root to refresh).
-# Commit the source NatSpec, not the derived page.
-/docs/api.md
+# docs/api.md is auto-generated from greekfi/protocol's Solidity NatSpec
+# but IS committed here — it's contributed via PRs from protocol's
+# regenerate-api-reference workflow on contract changes. Committing
+# means this repo can build and deploy without needing protocol checked
+# out alongside it.
 
 # Misc
 .DS_Store
