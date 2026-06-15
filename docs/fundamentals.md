@@ -8,50 +8,51 @@ sidebar_label: Fundamentals
 
 ## Overview
 
-Greek offers a mechanism for someone to write options to receive two tokens, OPT and CLT, in return for depositing collateral:
+Greek offers a mechanism for someone to write options to receive two tokens, an **Option** (OPT) and a **Receipt** (RCT), in return for depositing collateral:
 
 ```
            deposit collateral
                    │
                    ▼
  ┌──────────────┐      ┌──────────────┐
- │    Option    │      │  Collateral  |
- |              │◀....▶|    Token     |
+ │    Option    │      │   Receipt    |
+ |              │◀....▶|              |
  │  (long side) │      │ (short side) │
  └──────────────┘      └──────────────┘
 ```
 
-Both tokens are standard ERC20. The **Option** holder has the right to receive collateral; the **Collateral** holder backs that right and keeps the premium / post-expiry residual.
+Both tokens are standard ERC20. The **Option** holder has the right to receive collateral; the **Receipt** holder backs that right and keeps the premium / post-expiry residual.
 
-Options are fully-collateralized, meaning any option created has collateral in the protocol backing that option in the event it gets exercised/settled.
+Options are fully-collateralized, meaning any option created has collateral in the protocol backing that option in the event it gets exercised.
 
-To enable capital efficiency of that collateral, Greek provides the option writer a Collateral Token (CLT) which allows the writer to redeem the collateral after expiration. Let's dig into this system.
+To enable capital efficiency of that collateral, Greek provides the option writer a Receipt token (RCT) which represents the short side and lets the writer reclaim the collateral after the exercise window closes. Let's dig into this system.
 
-## Option & Collateral Tokens
+## Option & Receipt Tokens
 
-Both sides of an option are standard ERC20s, deployed as EIP-1167 clones per option pair. Same decimals as the underlying collateral token.
+Both sides of an option are standard ERC20s, deployed as clones per option pair (the Option via EIP-1167, the Receipt via clones-with-immutable-args so every per-option field is baked into bytecode). Same decimals as the underlying collateral token.
 
 ### Option Token (OPT)
 
-- Minted on deposit, burned on `exercise`, `redeem` (pair), or `claim` (settled).
+- Minted on deposit, burned on `exercise` or pair-`burn`.
 - Transferable. Standard `approve` / `transferFrom` semantics, plus operator approvals via the factory (see below).
-- Expiration-gated: `mint`, `transfer`, `exercise`, pair-`redeem` all revert after expiry. Post-expiry, only `settle` and `claim` work (and only in settled modes).
+- Time-gated: `mint` reverts at/after expiry; `transfer`, `exercise`, and pair-`burn` revert after the exercise deadline. There is no oracle/settle/claim step — settlement is manual exercise (see [Settlement](./settlement)).
 
-### Collateral Token (CLT)
+### Receipt Token (RCT)
 
-- Minted 1:1 with Option on deposit.
-- Transferable. Burned on pair-`redeem` (pre-expiry) or `redeem` / `redeemConsideration` (post-expiry).
-- No expiration gate — Collateral holders can unwind pre- or post-expiry depending on path.
-- Accessed via `Option.coll()`.
+- Minted 1:1 with the Option on deposit; the Receipt contract physically escrows the collateral.
+- Transferable. Burned on pair-`burn` (pre-deadline) or `redeem` (after the exercise window).
+- Holders unwind via pair-`burn` while they also hold matched Options, or via `redeem` (cons-first, then collateral 1:1) once the window closes.
+- Accessed via `Option.receipt()`.
 
 ### Names & symbols
 
 Auto-generated at deploy time from the option's parameters:
 
 ```
-OPT-WETH-USDC-3000-2026-06-27      // American call
+OPTA-WETH-USDC-3000-2026-06-27     // American call (A for American)
 OPTE-WETH-USDC-3000-2026-06-27     // European call (E for Euro)
-CLL-WETH-USDC-3000-2026-06-27      // Collateral side
+RCT-WETH-USDC-3000-2026-06-27      // Receipt (short) side, American
+RCTE-WETH-USDC-3000-2026-06-27     // Receipt (short) side, European
 ```
 
 Name format: `<prefix>-<collateralSymbol>-<considerationSymbol>-<strike>-<YYYY-MM-DD>`.
@@ -60,22 +61,22 @@ Put options display the human-readable strike (inverse of on-chain storage); see
 
 ### Invariants
 
-- **1:1 backing** — on mint, the number of Option tokens equals Collateral tokens equals deposited collateral. No inflation.
-- **Available collateral equals option supply** — while the option is active. Exercise swaps collateral out in return for consideration in; pair-redeem burns matched pairs 1:1.
-- **Collateral conservation at expiry** — total payouts to Option + Collateral holders equal the contract's collateral + consideration balance.
-- **Decimals equal to collateral decimals** — The option and Collateral Token `decimals()` match the underlying collateral. This simplifies every downstream calculation.
+- **1:1 backing** — on mint, the number of Option tokens equals Receipt tokens equals deposited collateral. No inflation.
+- **Available collateral equals option supply** — while the option is active. Exercise swaps collateral out in return for consideration in; pair-burn burns matched pairs 1:1.
+- **Solvency** — every outstanding receipt is backed 1:1 by some mix of collateral and consideration: `available_collateral + toCollateral(available_consideration) >= totalSupply`.
+- **Decimals equal to collateral decimals** — the Option and Receipt `decimals()` match the underlying collateral. This simplifies every downstream calculation.
 
 ### No protocol fees
 
-Mint, exercise, pair-redeem, and post-expiry claim are 1:1 — what you put in is what comes out. Revenue is earned at the trading layer (market-maker spread, vault yield).
+Mint, exercise, pair-burn, and redeem are 1:1 — what you put in is what comes out. Revenue is earned at the trading layer (market-maker spread, vault yield).
 
 ## Mint & Collateralize
 
-To open an option position, you deposit collateral through the `Option` contract. The protocol mints an equal amount of `Option` + `Collateral` tokens to your address and holds the collateral in escrow until the option is exercised, pair-redeemed, or settled at expiry.
+To open an option position, you deposit collateral through the `Option` contract. The protocol mints an equal amount of `Option` + `Receipt` tokens to your address and holds the collateral in escrow until the option is exercised, pair-burned, or redeemed after the window.
 
 ### Approvals
 
-Users approve the **factory** once, not each option. The factory is the single transfer authority — it's the only contract that pulls your underlying tokens, and it does so only when a registered Collateral contract asks it to.
+Users approve the **factory** once, not each option. The factory is the single transfer authority — it's the only contract that pulls your underlying tokens, and it does so only when a registered Receipt contract asks it to.
 
 ```solidity
 // One-time setup
@@ -83,7 +84,7 @@ IERC20(collateral).approve(address(factory), type(uint256).max);
 factory.approve(collateral, type(uint256).max);
 ```
 
-The first line is a standard ERC20 approval to the factory. The second registers the allowance in the factory's internal book, which is what Collateral contracts check on mint.
+The first line is a standard ERC20 approval to the factory. The second registers the allowance in the factory's internal book, which is what Receipt contracts check on mint.
 
 ### Minting
 
@@ -97,18 +98,18 @@ option.mint(recipient, 1e18);
 
 Under the hood:
 
-1. `Option.mint` calls `Collateral.mint(account, amount)`.
-2. Collateral calls `factory.transferFrom(account, this, amount, collateralToken)` to pull the deposit.
-3. Collateral verifies the balance increased by exactly `amount` (fee-on-transfer tokens are rejected).
-4. `Option` and `Collateral` tokens are minted 1:1 to `account`.
+1. `Option.mint` calls `Receipt.mint(account, amount)`.
+2. Receipt calls `factory.transferFrom(account, this, amount)` to pull the deposit.
+3. The factory verifies the balance increased by exactly `amount` (fee-on-transfer tokens are rejected with `FeeOnTransferNotSupported`).
+4. `Option` and `Receipt` tokens are minted 1:1 to `account`.
 
-After mint, the Collateral contract holds the collateral. Its balance equals the outstanding Option supply.
+After mint, the Receipt contract holds the collateral. Its balance equals the outstanding Option supply.
 
 ### Key contracts
 
-- `Option.sol` — public entry point. `mint(amount)`, `mint(to, amount)`.
-- `Collateral.sol` — holds escrow, enforces 1:1. Only callable by its paired Option.
-- `Factory.sol` — clone factory, allowance registry, blocklist.
+- `Option.sol` — long-side entry point. `mint(amount)`, `mint(to, amount)`, `exercise`, `burn` (pair-burn).
+- `Receipt.sol` — short side. Holds escrow, enforces 1:1, handles `redeem`. Only mintable/burnable by its paired Option.
+- `Factory.sol` — clone factory and single allowance registry (`approve`, `approveOperator`, `enableAutoMintBurn`, `allowExercise`, `allowRedeem`).
 
 See the [API Reference](./api) for full surface.
 
@@ -124,9 +125,9 @@ factory.approveOperator(operator, true);
 
 When approved, `operator` can call `option.transferFrom(owner, to, amount)` on any option created by that factory without needing individual ERC20 approvals. Used by the RFQ settlement contract and other trading venues.
 
- If the sender has opted into auto-mint / auto-redeem (next section), the transfer can additionally mint or burn pairs on the fly, assuming the sender has enough collateral.
+ If the sender has opted into auto-mint / auto-burn (next section), the transfer can additionally mint or burn pairs on the fly, assuming the sender has enough collateral.
 
-## Auto-Mint & Auto-Redeem
+## Auto-Mint & Auto-Burn
 
 Standard ERC20 transfers assume the sender has tokens and the receiver just credits them. For an options protocol, that's inflexible — a market maker often wants to sell options they haven't minted yet, and it would be unscalable to pre-mint 100 variations of options (strikes, expirations).
 
@@ -135,22 +136,22 @@ Similarly, when receiving options to close a position an option writer wants tha
 Greek offers **opt-in** capabilities for both:
 
 - **Auto-mint** — automatically mint options as they are transferred by collateralizing the underlying collateral.
-- **Auto-redeem** — receiving options while holding matched Collateral tokens burns the pair and returns collateral.
+- **Auto-burn** — receiving options while holding matched Receipt tokens pair-burns and returns collateral.
 
 ### Opting in
 
 ```solidity
-factory.enableAutoMintRedeem(true);
+factory.enableAutoMintBurn(true);
 ```
 
-By enabling this flag for your wallet, every option in that factory can have auto-mint and auto-redeem. This is disabled by default. Both directions fire based on the sender's / receiver's opt-in independently.
+By enabling this flag for your wallet, every option in that factory can have auto-mint and auto-burn. This is disabled by default. Both directions fire based on the sender's / receiver's opt-in independently.
 
 ### Auto-mint: sell-without-minting
 
 ```solidity
 // Maker hasn't minted yet, but holds collateral.
 // Maker opts in, then signs a transfer.
-factory.enableAutoMintRedeem(true);
+factory.enableAutoMintBurn(true);
 
 // Taker pulls options via transferFrom
 option.transferFrom(maker, taker, 10e18);
@@ -159,39 +160,36 @@ option.transferFrom(maker, taker, 10e18);
 On the transfer:
 
 1. Maker's option balance is 0, requested amount is 10e18.
-2. Since maker opted in, the deficit (`10e18 - 0`) is minted — factory pulls 10e18 collateral from the maker and mints 10e18 Option + 10e18 Collateral to the maker.
+2. Since maker opted in, the deficit (`10e18 - 0`) is minted — factory pulls 10e18 collateral from the maker and mints 10e18 Option + 10e18 Receipt to the maker.
 3. Then the standard transfer moves the 10e18 Option tokens to the taker.
 
-Net: maker holds 10 Collateral, taker holds 10 Option, collateral is locked in the Collateral contract. Same outcome as `mint` + `transfer`, one tx.
+Net: maker holds 10 Receipt, taker holds 10 Option, collateral is locked in the Receipt contract. Same outcome as `mint` + `transfer`, one tx.
 
-### Auto-redeem: unwind-on-receive
+### Auto-burn: unwind-on-receive
 
 ```solidity
-// Taker holds 10 Option + 10 Collateral (e.g. from a pair position).
+// Taker holds 10 Option + 10 Receipt (e.g. from a pair position).
 // Taker opts in.
-factory.enableAutoMintRedeem(true);
+factory.enableAutoMintBurn(true);
 
-// Any further Option arriving at taker burns matched pairs.
+// Any further Option arriving at taker pair-burns matched amounts.
 IERC20(option).transfer(taker, 3e18);
 ```
 
 On receive:
 
-1. Taker's Collateral balance is 10e18, incoming 3e18.
+1. Taker's Receipt balance is 10e18, incoming 3e18.
 2. Since taker opted in, `min(3e18, 10e18) = 3e18` pairs are burned.
 3. 3e18 collateral is released back to taker.
 
 ### When it fires
 
-Both transfer entry points apply auto-settling: `transfer(to, amount)` and `transferFrom(from, to, amount)`. Auto-mint checks the **sender's** opt-in flag; auto-redeem checks the **receiver's**. Each side is independent.
-
-Auto-mint and auto-redeem are gated by `notExpired` — after expiry, neither fires and transfers follow normal ERC20 semantics.
+Both transfer entry points apply auto-settling: `transfer(to, amount)` and `transferFrom(from, to, amount)`. Auto-mint checks the **sender's** opt-in flag; auto-burn checks the **receiver's**. Each side is independent.
 
 ### Why this matters
 
 - Market makers using RFQ can commit to a quote without pre-minting, then let the taker's settlement trigger the mint.
-- Pair holders can unwind a position just by receiving their matched tokens — no separate `redeem` call needed.
-- The CLOBAMM / NuAMMv2 on-chain books rely on this to deliver options from pooled collateral without per-level minting.
+- Pair holders can unwind a position just by receiving their matched tokens — no separate `burn` call needed.
 
 ## Exercise
 
@@ -212,7 +210,7 @@ The term "consideration" is rarely used in the options world because in nearly a
 
 ### Exercising on-chain
 
-An option can be exercised on-chain at any time (e.g. any block). Prior to exercising, you need to allow the Factory to call `transferFrom()` to transfer your consideration tokens in for the swap. 
+An **American** option can be exercised on-chain at any time up to and including the exercise deadline. A **European** option can only be exercised during the post-expiry window (between `expirationDate` and `exerciseDeadline`). See [Settlement](./settlement) for the window mechanics. Prior to exercising, you need to allow the Factory to call `transferFrom()` to transfer your consideration tokens in for the swap. 
 
 ```solidity
 // One-time setup
@@ -230,8 +228,8 @@ option.exercise(amountX);
 ```
 
 1. The option is burned.
-2. X × Strike of Consideration is transferred to the Option + Collateral contracts.
-3. X of Collateral will be transferred to your wallet.
+2. X × Strike of Consideration is transferred into the Receipt contract (rounded up).
+3. X of Collateral is transferred to your wallet.
 
 ### Call example
 
@@ -245,7 +243,7 @@ A WETH call at $3,000 strike:
 
 - Minting deposits WETH.
 - Exercising pays USDC → gets WETH.
-- At expiry (settled), ITM means `spotUSDC/WETH > 3000`.
+- It's worth exercising when spot `USDC/WETH > 3000` — the holder decides off-chain; there is no on-chain price check.
 
 ### Put example
 
@@ -267,6 +265,6 @@ Yes, from the example above, you can see that the swap is simply reversed. The o
 ### Important Notes
 
 - All strike prices are 18-decimal notation.
-- `exercise` can only be called on American options.
-- European options cannot be exercised before the expiration date.
-- After the expiration date, no exercise is possible — if the option has a settlement-price oracle, settlement auto-delivers the amount above the strike at expiration.
+- **American** options can be exercised any time up to and including the exercise deadline.
+- **European** options cannot be exercised before expiry — only during the post-expiry window.
+- Once `exerciseDeadline` passes, no exercise is possible for either mode. There is no oracle and no auto-settlement: a holder who never exercises an ITM option forfeits that value. The short side then reclaims collateral/consideration via `Receipt.redeem` (see [Settlement](./settlement)).

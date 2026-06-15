@@ -6,56 +6,44 @@ sidebar_position: 0
 
 # Greek
 
-Greek is a options infrastructure on EVM (Mainnet, Base, Arbitrum). It provides the capability to produce and trade unique, universal ERC20 option tokens for any underlying collateral (and [consideration](./fundamentals#consideration)), expiration date and strike price.
+Greek is an options infrastructure on EVM (live on Ethereum, Base, Arbitrum, and Ink). It provides the capability to produce and trade unique, universal ERC20 option tokens for any underlying collateral (and [consideration](./fundamentals#consideration)), expiration date and strike price.
 
-Greek has partnered with [Bebop](https://bebop.xyz) to provide [options trades](./trading) through their RFQ system with on-chain settlement.
+Greek has partnered with [Bebop](https://bebop.xyz) to provide [options trades](./trading) through their RFQ system, settling as plain ERC20 transfers on-chain.
 
 ## What the protocol does
 
 Greek provides the ability to create tokens and smart contracts for:
 
-1. European Options with Settlement
-2. American Options with Settlement
-3. American Options without Settlement
+1. **American options** — exercisable any time up to the deadline.
+2. **European options** — exercisable only during the post-expiry window.
 
-Every token is ERC20, making it fungible and transferable hence swappable.
+Both are fully collateralized and settle by **manual, time-gated exercise** — there is no
+oracle and no on-chain price comparison (see [Settlement](./settlement)). Every token is
+ERC20, making it fungible and transferable hence swappable.
 
 ## Where to start
 
-- **[Fundamentals](./fundamentals)** — Option Token + Collateral Token; exercise, settlement, collateral redemption; auto-mint/redeem.
+- **[Fundamentals](./fundamentals)** — Option Token + Receipt Token; minting, exercise, redemption; auto-mint/burn.
 - **[Trading](./trading)** — RFQ flows via Bebop, buying and shorting, market-makers, market takers.
-- **[Settlement](./settlement)** — pair-redeem, oracle settlement, post-expiry paths.
+- **[Settlement](./settlement)** — time-gated exercise, pair-burn, post-window redemption.
 - **[API Reference](./api)** — full contract surface, generated from smart contract code.
 
 ## Deployed Addresses
 
+The factory is the single entry point per chain — it deploys every Option + Receipt pair
+and serves as the shared approval hub.
+
+| Network            | Chain ID | Factory |
+|--------------------|---------:|---------|
+| Ethereum (Mainnet) | 1        | `0xbd54f7c909008a11c912a353416d88e5c2f3c4b3` |
+| Base               | 8453     | `0xa77d556536295be287facc7bb4a439d96a8227db` |
+| Arbitrum           | 42161    | `0xd1cb90426042f837a636131c98aca2321b7a4a15` |
+| Ink                | 57073    | `0x799f44d9881a08c226c0c408e60a39d9a1d31d75` |
+
 :::info
-Addresses are not yet finalized for this refactor. This page will be populated as deployments go live.
+Unichain (130) and HyperEVM (999) are registered in the frontend; factory deployments
+there are pending. Always confirm the current address against the app before interacting.
 :::
-
-### Mainnet (Ethereum)
-
-| Contract | Address |
-|----------|---------|
-| Factory  | _TBD_ |
-
-### Base
-
-| Contract | Address |
-|----------|---------|
-| Factory  | _TBD_ |
-
-### Unichain
-
-| Contract | Address |
-|----------|---------|
-| Factory  | _TBD_ |
-
-### Test networks
-
-| Network  | Factory |
-|----------|---------|
-| Sepolia  | _TBD_ |
 
 ### Programmatic discovery
 
@@ -69,9 +57,9 @@ event OptionCreated(
     uint96 strike,
     bool isPut,
     bool isEuro,
-    address oracle,
+    uint40 windowSeconds,
     address indexed option,
-    address coll
+    address receipt
 );
 ```
 

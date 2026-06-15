@@ -6,250 +6,166 @@ sidebar_position: 2
 
 # Settlement
 
-How an option ends depends on its mode, which is set at creation and baked in:
+Greek settlement is **purely time-gated** — there is no oracle, no `settle()`, no
+on-chain price comparison. The holder watches spot off-chain and decides whether the
+option is in-the-money. If it is, they exercise during the window and pay strike; if it
+isn't, they let it lapse. This eliminates the entire oracle attack surface (price
+spoofing, feed staleness, TWAP manipulation, oracle bricking) at the cost of holder UX:
+a passive holder who never exercises forfeits ITM value once the window closes.
 
-| Mode                    | `isEuro` | `oracle`   | Pre-expiry                        | Post-expiry                                           |
-|-------------------------|:--------:|:----------:|------------------------------------|--------------------------------------------------------|
-| American, non-settled   | false    | `0x0`      | `exercise` + pair-`redeem`         | `redeem` (pro-rata) + `redeemConsideration`           |
-| American, settled       | false    | non-zero   | `exercise` + pair-`redeem`         | `redeem` (oracle split) + `redeemConsideration` + `claim` |
-| European                | true     | non-zero   | pair-`redeem` only                 | `settle` + `claim` + `redeem` (oracle split)          |
+Two flavours coexist, chosen at creation by the `isEuro` flag:
 
-Invalid combo: `isEuro=true, oracle=0` — rejected at creation.
+| Mode      | `isEuro` | Pre-expiry exercise | In-window exercise | Short-side exit after window           |
+|-----------|:--------:|---------------------|--------------------|----------------------------------------|
+| American  | `false`  | allowed             | allowed            | `Receipt.redeem` (cons-first, then collateral 1:1) |
+| European  | `true`   | reverts             | allowed            | `Receipt.redeem` (cons-first, then collateral 1:1) |
 
-## Always available
+## The exercise window
 
-Regardless of mode, these are always callable pre-expiry:
+Every option has two timestamps, both baked in at creation:
 
-- **`mint(amount)`** — open new pairs from collateral.
-- **`option.redeem(amount)`** (pair-redeem) — burn matched Option + Collateral, recover collateral. No price lookup; always 1:1. See [Pair Redeem](#pair-redeem) below.
-- **`transfer` / `transferFrom`** — trade options. Auto-mint / auto-redeem fire if opted in.
+- **`expirationDate`** — when the option "expires" in the classical sense.
+- **`exerciseDeadline = expirationDate + windowSeconds`** — when exercise actually closes
+  for everyone.
 
-## American-specific (pre-expiry)
+`windowSeconds` is taken **literally** — the contract never substitutes a default.
+American options may pass `0` (no post-expiry extension — the deadline collapses onto
+`expirationDate`). European options require `windowSeconds > 0`. The factory exposes
+`DEFAULT_EXERCISE_WINDOW = 8 hours` as an *informational* suggested default for
+frontends; the contract itself does not consult it.
 
-- **`exercise(amount)`** — burn Options, pay strike × amount in consideration, receive collateral. Reverts in European mode. See [Fundamentals → Exercise](./fundamentals#exercise).
+The window boundary is **inclusive**: `block.timestamp == exerciseDeadline` is still
+in-window. Exercise, `transfer`/`transferFrom`, and pair-`burn` all stop at the same
+boundary. The collateral leg of short-side redemption only opens *strictly after*
+`exerciseDeadline`.
 
-## Post-expiry
+```
+   mint window            exercise window
+ ──────────────●────────────────────────●────────────▶  time
+          expirationDate          exerciseDeadline
+                                  (= expiry + windowSeconds)
 
-This is where modes diverge.
+ American: exercise allowed across the whole line up to exerciseDeadline (inclusive)
+ European: exercise allowed only between expirationDate and exerciseDeadline
+```
 
-### Non-settled (American only)
+## Exercise
 
-No oracle, so no spot lookup. Collateral holders redeem pro-rata against whatever collateral + consideration is in the contract:
-
-- `redeem(amount)` — pro-rata split of remaining collateral + consideration.
-- `redeemConsideration(amount)` — alternative path, takes consideration at strike rate.
-
-### Settled (American or European)
-
-Anyone can call `settle(hint)` post-expiry to latch the oracle price. Then:
-
-- `option.claim(amount)` — option holder burns and receives the ITM payout (`amount × (spot - strike) / spot`).
-- `coll.redeem(amount)` — collateral holder takes pro-rata of `(collateralBalance - optionReserve, considerationBalance)` — where `optionReserve` is the un-exercised collateral earmarked for option holders.
-- `coll.redeemConsideration(amount)` — still works in American-settled (pulls from consideration pot); meaningless in European (no consideration ever entered).
-
-See [Oracle Settlement](#oracle-settlement) below for the math and conservation proof.
-
-## Permissionless triggers
-
-`settle` and `sweep` (for batching post-expiry redemptions) are **permissionless** — anyone can pay the gas to finalize a contract, including bots. This is deliberate: no stakeholder can block settlement.
-
-## Pair Redeem
-
-Pair-redeem is the universal "I changed my mind" unwind. You hold both Option and Collateral for the same pair, you burn them together, and you get your collateral back.
+Exercising burns Options, pays `amount × strike` in consideration (rounded **up**), and
+delivers `amount` of collateral.
 
 ```solidity
-option.redeem(amount);
+option.exercise(amount);   // or exercise() for the caller's full balance
 ```
 
-Works pre-expiry, in every mode (American, European, settled or not).
+- `exercise()` / `exercise(amount)` — **self-exercise**, always safe: the caller pays
+  consideration and receives collateral.
+- For **American** options this works any time up to and including `exerciseDeadline`.
+- For **European** options it reverts before `expirationDate`; only the post-expiry
+  window is exercisable.
 
-### Semantics
+Before exercising you must let the factory pull your consideration — the same one-time
+approval pattern used for minting (see [Fundamentals → Exercise](./fundamentals#exercising-on-chain)).
 
-1. `amount` Option tokens burned from caller.
-2. `amount` Collateral tokens burned from caller.
-3. `amount` collateral returned to caller.
-
-The caller must hold at least `amount` of both tokens. Otherwise reverts with `InsufficientBalance`.
-
-### Why it always works
-
-Pair-redeem is collateral-neutral. Burning a matched pair is the exact inverse of minting a pair — it doesn't take anything from un-paired holders or change the option/collateral supply relationship for anyone else.
-
-### Post-expiry
-
-Pair-redeem is gated by `notExpired`. Post-expiry, you use:
-
-- `coll.redeem(amount)` — post-expiry unwind. Pays pro-rata or oracle split depending on mode. Does NOT require matched Option tokens.
-- `option.claim(amount)` — option-holder ITM payout (settled modes only).
-
-The pair-redeem mechanism is specifically pre-expiry because post-expiry the terms are different — the option holder has a well-defined ITM or zero payout, and the collateral holder gets the rest. Burning a matched pair post-expiry would short-change one side or the other.
-
-### When is this useful?
-
-- **Market maker unwinding a position** — you're short via auto-mint, you bought back the same amount of options, you burn the matched pair and re-claim collateral.
-- **Liquidity provider adjusting exposure** — pair-redeem and re-mint into a different strike/expiry.
-- **Auto-redeem on receive** — if you opted into auto-mint/redeem, receiving Options while holding Collateral auto-triggers pair-redeem for matched amounts. See [Fundamentals → Auto-Mint & Auto-Redeem](./fundamentals#auto-mint--auto-redeem).
-
-### No oracle required
-
-Pair-redeem doesn't care about spot, strike, or expiry state. It's pure collateral conservation: in, out, 1:1. The only way it can fail is if something has corrupted the 1:1 invariant — in which case the contract has bigger problems than your unwind.
-
-## Oracle Settlement
-
-When an option has an attached oracle, post-expiry settlement is mechanical: latch the spot, then split the remaining collateral between Option and Collateral holders according to ITM/OTM.
-
-### Three steps
-
-1. **`settle(hint)`** — permissionless, idempotent. Calls the oracle to latch spot and initialize `optionReserveRemaining`.
-2. **`option.claim(amount)`** — option holder burns Options, receives ITM payout.
-3. **`coll.redeem(amount)`** — collateral holder burns Collateral, receives pro-rata of remaining.
-
-`hint` is oracle-specific: empty bytes for Uniswap TWAP, `abi.encode(roundId)` for Chainlink.
-
-### Math
-
-Given settled spot `S`, strike `K`, option supply at settlement `O`:
-
-#### ITM (`S > K`)
-
-```
-optionReserve = O × (S - K) / S
-
-option.claim(a)     = a × (S - K) / S           collateral (floor-rounded)
-coll.redeem(a)      = pro-rata of:
-                        - collateral: (C − liveOptionReserve) × (a / N)
-                        - consideration: V × (a / N)
-```
-
-Where:
-
-- `C` = current collateral balance
-- `V` = current consideration balance (non-zero only if exercised pre-expiry)
-- `N` = current Collateral token supply
-- `liveOptionReserve` = `optionReserveRemaining` (starts at `O × (S-K)/S`, decrements on each claim)
-
-#### OTM (`S ≤ K`)
-
-```
-optionReserve = 0
-
-option.claim(a)     = 0   (burns Options, no payout)
-coll.redeem(a)      = pro-rata of full remaining balances
-```
-
-### Conservation
-
-For any sequence of claim/redeem calls in any order:
-
-```
-Σ (option payouts) + Σ (coll payouts, collateral)    = initial collateral balance
-                   + Σ (coll payouts, consideration) = initial consideration balance
-```
-
-Both sums hold within rounding (floor on all payouts; dust stays in contract).
-
-### Why a reserve?
-
-The reserve decouples claim order from redeem order. Without it:
-
-- If Collateral redeems first, it grabs all remaining collateral.
-- Later Option claims have nothing to pay from.
-
-With `optionReserveRemaining`:
-
-- At settle, we snapshot exactly how much collateral option holders are collectively entitled to.
-- Collateral redemptions see `collateralBalance - optionReserveRemaining` as their available pool, leaving option holders' share untouched.
-- Each claim decrements the reserve, and the claim payout leaves the collateral pool, so the subtraction stays consistent.
-
-### When settle fires automatically
-
-- `option.claim` — if not yet settled, calls `coll.settle("")` before burn.
-- `coll.redeem` — if `oracle != 0`, calls `_settle("")` internally.
-- `coll.sweep` — same, for batched redemption.
-
-You can also pre-settle manually with `option.settle(hint)` or `coll.settle(hint)`, useful when the oracle requires a non-empty hint (Chainlink roundId).
-
-### Permissionless
-
-`settle` has no access control — anyone can call post-expiry. Bots, keepers, or any interested party can pay the gas to finalize an option. This is by design so a negligent owner can't strand settlement.
-
-### What Option holders lose if they forget
-
-Option holders who never call `claim` leave their ITM share locked in `optionReserveRemaining`. It's recoverable any time — no deadline. But nothing auto-pays it out; you have to call `claim` or `claimFor(holder)`.
-
-`claimFor` is permissionless too, so a bot/keeper can claim on behalf of a holder if incentivized.
-
-## Oracles
-
-An oracle is any contract implementing `IPriceOracle`:
+### Keeper exercise (`exerciseFor`)
 
 ```solidity
-interface IPriceOracle {
-    function expiration() external view returns (uint256);
-    function isSettled() external view returns (bool);
-    function settle(bytes calldata hint) external returns (uint256);
-    function price() external view returns (uint256);
-}
+option.exerciseFor(holder, amount);   // single holder
+option.exerciseFor(holders);          // batch — skips unauthorised / zero-balance entries
 ```
 
-- `expiration()` — the timestamp this oracle settles against. Must match the option's expiration.
-- `settle(hint)` — idempotent latch. First call post-expiry stores the settlement price; subsequent calls are no-ops.
-- `price()` — reverts before `settle`, returns the latched price after.
+`exerciseFor` is the **dangerous keeper path**: the caller pays strike *and* receives the
+collateral, while the holder gets nothing on-chain. It's authorised only when
+`msg.sender == holder` or the holder has granted `factory.allowExercise(keeper, true)`.
 
-Output is 18-decimal fixed-point, **consideration per collateral**. Same convention as strike.
+Granting `allowExercise` to a non-trusted address is equivalent to handing it a
+withdrawal right over your ITM value — use it only with contracts that compensate you
+off-band. Note that `approveOperator` is **not** enough: that gates *transfer*, this
+gates *consumption*. The batch form silently skips entries that fail the per-holder
+allowance check or have a zero balance, so one stale entry can't grief the whole sweep.
 
-### Per-option, pinned to expiry
+## Pair-burn (unwinding before the deadline)
 
-Each option gets its own oracle instance. The factory deploys the appropriate wrapper at creation time, bound to the option's expiration timestamp. This means:
-
-- Two options with different expiries have independent oracles, even if they point at the same underlying pool/feed.
-- The oracle's `expiration()` is immutable — you can't accidentally settle against a different time.
-
-### Supported sources
-
-#### Uniswap v3 TWAP (shipping today)
-
-The factory accepts a Uniswap v3 pool address as `oracleSource`. It deploys a `UniV3Oracle` wrapper that, on `settle()`, reads the pool's observation buffer over a configurable window ending at expiry:
+Pair-burn is the "I changed my mind" unwind. If you hold matched Option **and** Receipt
+for the same series, burn them together and get your collateral back 1:1:
 
 ```solidity
-CreateParams({
-    collateral: address(weth),
-    consideration: address(usdc),
-    expirationDate: exp,
-    strike: 3000e18,
-    isPut: false,
-    isEuro: false,         // or true
-    oracleSource: address(wethUsdcPool),
-    twapWindow: 1800       // 30-minute TWAP
-});
+option.burn(amount);
 ```
 
-Semi-strict timing: `settle()` works any time after expiry, as long as the observations covering `[expiration - twapWindow, expiration]` are still in the pool's ring buffer. For high-traffic pools this is days; for quieter ones it can be much shorter — be careful with long settlement delays.
+- Allowed up to and **including** `exerciseDeadline` (the same `beforeDeadline` boundary
+  as transfer and exercise).
+- Collateral-neutral: it's the exact inverse of minting a pair. It nets out both sides
+  without touching the redemption pool, so it never needs the window to be closed and
+  never short-changes other holders.
+- No price lookup — pure 1:1 collateral conservation.
 
-Call `settle("")` with empty hint; Uniswap doesn't need any external input.
+If you've opted into auto-mint/burn, receiving Option tokens while holding the matching
+Receipt fires this automatically — see
+[Fundamentals → Auto-Mint & Auto-Burn](./fundamentals#auto-mint--auto-burn).
 
-#### Pre-deployed IPriceOracle
+## Short-side redemption (after the window)
 
-You can also pass any pre-deployed `IPriceOracle` directly as `oracleSource`. The factory detects this via the `expiration()` match and uses the contract as-is. This enables:
+Once the exercise window has run, the short side (Receipt holders) reclaims value via
+redemption. The contract holds whatever mix of collateral and consideration the option
+ended with — collateral for the portion never exercised, consideration for the portion
+that was — and pays it out **cons-first, then collateral 1:1**:
 
-- Oracle reuse across multiple options with the same expiry (deploy once, attach to many).
-- Custom oracle implementations without factory changes.
+```solidity
+receipt.redeem(amount);   // or redeem() for the caller's full balance
+```
 
-#### Chainlink (planned)
+1. **Consideration leg** — pays up to the receipt-units the consideration pool can still
+   back at the strike rate (`toConsideration(amount, false)`, floor-rounded). This leg
+   has **no window gate** — it's callable any time the pool can cover it (reverts
+   `InsufficientPool` if the consideration balance is short). It exists because exercised
+   options have already swapped collateral out for consideration in.
+2. **Collateral leg** — any remainder the consideration pool can't cover is paid 1:1 in
+   collateral, but **only after** `block.timestamp > exerciseDeadline`. Pre-deadline, the
+   uncovered receipt-units stay in your balance for later redemption.
 
-Chainlink's round-based model is a natural fit: take a `roundId` hint, verify it was the earliest round after expiry, latch that answer. No buffer-lifetime concerns.
+This is **first-come-first-served by design**: an early redeemer captures the
+consideration premium, leaving later post-window redeemers with collateral. There is no
+pro-rata split and no oracle-based payout — every receipt is always backed 1:1 by some
+mix of collateral and consideration.
 
-### Permissionless settlement
+### Keeper redemption (`redeemFor`)
 
-`oracle.settle(hint)` has no access control. Any EOA or contract can pay the gas to latch the price. This is by design — settlement should never be held up waiting for a specific party.
+```solidity
+receipt.redeemFor(holders);   // batch — skips unauthorised entries
+```
 
-In practice:
+`redeemFor` is **composability-safe**, unlike `exerciseFor`: funds always flow to the
+holder, never to the keeper. The keeper is a pure trigger, authorised per holder by
+`factory.allowRedeem(keeper, true)` (or `msg.sender == holder`). A Receipt sitting inside
+an ERC-4626 vault or a Morpho market can't be force-unwound by an unauthorised third
+party.
 
-- Bots will settle high-value options automatically after expiry.
-- Option holders can self-serve via `option.settle(hint)` if no one has settled yet (convenience forwarder).
+### Dust sweep
 
-### Caveats
+```solidity
+receipt.sweep(token, to);
+```
 
-- Oracle must be pre-verified at creation — the factory checks `expiration()` matches, but doesn't inspect the oracle's implementation. Use oracles you trust.
-- Settlement price is one number. For options that need volatility or path-dependent settlement, this model doesn't fit.
-- If the oracle reverts on `settle()` (e.g. Uniswap observations rolled off, Chainlink feed paused), the option can't be settled. Users can still pair-redeem pre-expiry to avoid this risk.
+Factory-owner-only, and callable **only once `totalSupply() == 0`** so it can never short
+the redemption pool. It cleans up rounding residue and stray tokens after every receipt
+has been redeemed.
+
+## No protocol fees
+
+Mint, exercise, pair-burn, and redeem are all 1:1 — what goes in comes out. The protocol
+is "free like WETH wrapping." Rounding policy: collections from users round **up**
+(`toConsideration(amount, true)` on exercise), payouts to users round **down**; the dust
+stays in the contract and is recoverable via `sweep` once the pool is empty.
+
+## Why no oracle?
+
+A time-gated, holder-driven model trades UX for a dramatically smaller attack surface:
+
+- **No price feed to manipulate** — the protocol never reads spot on-chain, so there is
+  nothing to spoof, stale, or brick.
+- **No settlement transaction to censor** — there is no `settle()` step that a negligent
+  or adversarial party can strand.
+- **Cost:** passive holders forfeit ITM value if they don't exercise before the deadline.
+  Mitigate by authorising a trusted keeper via `factory.allowExercise`, or by exercising
+  yourself during the window.

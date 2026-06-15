@@ -16,7 +16,7 @@ Bebop's docs are the source of truth for the swap mechanics. Start here:
 
 ## Why RFQ (and not an AMM)
 
-Options have high dimensionality — strike × expiry × underlying × call/put — and each series has vastly different liquidity needs. An AMM per series would fragment capital badly. RFQ lets one maker quote the entire book using their own risk engine, and Greek's [auto-minting](./fundamentals#auto-mint--auto-redeem) means they don't need to pre-inventory every strike × expiry: options are minted at the moment of sale.
+Options have high dimensionality — strike × expiry × underlying × call/put — and each series has vastly different liquidity needs. An AMM per series would fragment capital badly. RFQ lets one maker quote the entire book using their own risk engine, and Greek's [auto-minting](./fundamentals#auto-mint--auto-burn) means they don't need to pre-inventory every strike × expiry: options are minted at the moment of sale.
 
 ## How Greek + Bebop fit
 
@@ -27,7 +27,7 @@ Bebop settlement  ──▶  option.transferFrom(maker, taker, amount)
                              │
                              ▼
                   Greek auto-mint fires (if maker opted in):
-                    pulls collateral → mints option+coll → transfers option
+                    pulls collateral → mints option+receipt → transfers option
 ```
 
 Net: the MM holds collateral, signs a quote, and the option materializes at the exact moment the taker pays for it.
@@ -55,7 +55,7 @@ IERC20(collateral).approve(address(factory), type(uint256).max);
 factory.approve(collateral, type(uint256).max);
 
 // Opt into auto-mint (one flag for all options from this factory)
-factory.enableAutoMintRedeem(true);
+factory.enableAutoMintBurn(true);
 
 // Let Bebop's settlement pull option tokens on your behalf
 // (one operator approval covers every option in the factory)
@@ -64,11 +64,11 @@ factory.approveOperator(bebopApprovalTarget, true);
 
 Now every RFQ sale signed by your wallet atomically:
 1. Pulls `amount` collateral from you,
-2. Mints `amount` Option + `amount` Collateral Tokens to you,
+2. Mints `amount` Option + `amount` Receipt tokens to you,
 3. Delivers the Options to the taker,
 4. Pays you the cash.
 
-You end up short (holding Collateral tokens). The original collateral is locked in the Collateral contract backing that short — unwound by buying options back, or settled at expiry.
+You end up short (holding Receipt tokens). The original collateral is locked in the Receipt contract backing that short — unwound by buying options back (pair-burn), or reclaimed via `Receipt.redeem` once the exercise window closes.
 
 
 ## Pricing
