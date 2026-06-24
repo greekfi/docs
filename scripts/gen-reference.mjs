@@ -23,24 +23,16 @@ const SECTIONS = [
     label: "Core Contracts",
     entries: [
       { from: "Option.sol/contract.Option.md", title: "Option" },
-      { from: "Collateral.sol/contract.Collateral.md", title: "Collateral" },
+      { from: "Receipt.sol/contract.Receipt.md", title: "Receipt" },
       { from: "Factory.sol/contract.Factory.md", title: "Factory" },
-      { from: "YieldVault.sol/contract.YieldVault.md", title: "YieldVault" },
       { from: "OptionUtils.sol/library.OptionUtils.md", title: "OptionUtils" },
-    ],
-  },
-  {
-    label: "Oracles",
-    entries: [
-      { from: "oracles/IPriceOracle.sol/interface.IPriceOracle.md", title: "IPriceOracle" },
-      { from: "oracles/UniV3Oracle.sol/contract.UniV3Oracle.md", title: "UniV3Oracle" },
     ],
   },
   {
     label: "Interfaces",
     entries: [
       { from: "interfaces/IOption.sol/interface.IOption.md", title: "IOption" },
-      { from: "interfaces/ICollateral.sol/interface.ICollateral.md", title: "ICollateral" },
+      { from: "interfaces/IReceipt.sol/interface.IReceipt.md", title: "IReceipt" },
       { from: "interfaces/IFactory.sol/interface.IFactory.md", title: "IFactory" },
     ],
   },
