@@ -83,8 +83,10 @@ function rewriteLinks(md) {
   });
 }
 
-// MDX parses {X} as a JS expression. Our NatSpec uses {ContractName} as cross-references,
-// so we walk the markdown outside of code blocks and backtick them.
+// MDX parses {X} as a JS expression. Our NatSpec uses {ContractName} and function-signature
+// cross-references like {exerciseFor(address,uint256)} — both must be backticked or MDX tries to
+// evaluate them (e.g. "exerciseFor is not defined"). We walk the markdown outside of code blocks
+// and backtick every brace group in prose (generated reference has no intentional JSX).
 function escapeJsxReferences(md) {
   const parts = md.split(/(^```[\s\S]*?^```)/m);
   return parts
@@ -94,7 +96,7 @@ function escapeJsxReferences(md) {
         .split(/(`[^`\n]*`)/g)
         .map((chunk, j) => {
           if (j % 2 === 1) return chunk;
-          return chunk.replace(/\{([A-Za-z_][A-Za-z0-9_.-]*)\}/g, "`$1`");
+          return chunk.replace(/\{([^{}\n]+)\}/g, "`$1`");
         })
         .join("");
     })

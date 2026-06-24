@@ -438,7 +438,7 @@ function exerciseFor(address holder, uint256 amount) public canExercise nonReent
 
 ##### exerciseFor
 
-Batch variant of {exerciseFor(address,uint256)}. Same dangerous semantics — the
+Batch variant of `exerciseFor(address,uint256)`. Same dangerous semantics — the
 caller pays consideration and receives collateral for every holder. Exercises
 `amounts[i]` of `holders[i]`. Entries that fail the per-holder allowance check or
 carry a zero amount are skipped rather than reverting, so a stale or unauthorised
@@ -1498,7 +1498,7 @@ across every option this factory has created (ERC-1155-style `setApprovalForAll`
 RFQ market makers, vault adapters, anything that needs to pull a holder's Option as
 part of a settlement flow without requiring a per-option ERC20 `approve`. Approved
 operators skip the per-transfer `_spendAllowance` step on `Option.transferFrom`.
-**⚠ Combination danger.** If the holder has also called {enableAutoMintBurn(true)},
+**⚠ Combination danger.** If the holder has also called `enableAutoMintBurn(true)`,
 an approved operator gains the right to *mint new Option positions* against the
 holder's factory collateral allowance, not just move existing balance. Path:
 operator calls `Option.transferFrom(holder, recipient, amount)` for an amount the
@@ -1536,7 +1536,7 @@ function approvedOperator(address owner_, address operator) external view return
 
 Authorise `exercisor` to exercise the caller's options on their behalf.
 
-Consumed by the on-behalf {Option.exercise(address,uint256)} overloads, which burn
+Consumed by the on-behalf `Option.exercise(address,uint256)` overloads, which burn
 the holder's option tokens, pull consideration from `exercisor`, and deliver the
 collateral to `exercisor`. Distinct from [approveOperator](#approveoperator): that grants transfer
 authority over the holder's option tokens, this grants the right to *consume* them
@@ -2086,7 +2086,7 @@ function exerciseFor(address holder, uint256 amount) external returns (uint256);
 
 ##### exerciseFor
 
-Batch variant of {exerciseFor(address,uint256)}. Exercises `amounts[i]` of `holders[i]`
+Batch variant of `exerciseFor(address,uint256)`. Exercises `amounts[i]` of `holders[i]`
 (arrays must be equal length). Entries that fail the per-holder allowance check, carry a
 zero amount, or request more than the holder's balance (`balanceOf(holder) < amount`) are
 skipped rather than reverting, so one stale entry can't grief the whole sweep.
