@@ -70,8 +70,8 @@ approval pattern used for minting (see [Fundamentals → Exercise](./fundamental
 ### Keeper exercise (`exerciseFor`)
 
 ```solidity
-option.exerciseFor(holder, amount);   // single holder
-option.exerciseFor(holders);          // batch — skips unauthorised / zero-balance entries
+option.exerciseFor(holder, amount);     // single holder
+option.exerciseFor(holders, amounts);   // batch — per-holder amounts, skips bad entries
 ```
 
 `exerciseFor` is the **dangerous keeper path**: the caller pays strike *and* receives the
@@ -81,8 +81,14 @@ collateral, while the holder gets nothing on-chain. It's authorised only when
 Granting `allowExercise` to a non-trusted address is equivalent to handing it a
 withdrawal right over your ITM value — use it only with contracts that compensate you
 off-band. Note that `approveOperator` is **not** enough: that gates *transfer*, this
-gates *consumption*. The batch form silently skips entries that fail the per-holder
-allowance check or have a zero balance, so one stale entry can't grief the whole sweep.
+gates *consumption*.
+
+The batch form takes a `holders[]` array alongside an `amounts[]` array of the same
+length (the caller chooses how much to exercise per holder). It silently skips any entry
+that fails the per-holder allowance check, carries a zero amount, or requests more than
+the holder's current balance (`balanceOf(holder) < amount`) — so one stale or unauthorised
+entry, or a holder who has since reduced their balance, can't grief the whole sweep. A
+holder's *exact* full balance is still exercisable.
 
 ## Pair-burn (unwinding before the deadline)
 
@@ -103,6 +109,24 @@ option.burn(amount);
 If you've opted into auto-mint/burn, receiving Option tokens while holding the matching
 Receipt fires this automatically — see
 [Fundamentals → Auto-Mint & Auto-Burn](./fundamentals#auto-mint--auto-burn).
+
+## Burning expired options (`expire`)
+
+Once `block.timestamp > exerciseDeadline`, an unexercised Option is inert — it can no
+longer be exercised, transferred, or pair-burned, so it would otherwise sit in your
+wallet forever. `expire` lets the holder burn their own expired long tokens to clean them
+up:
+
+```solidity
+option.expire(amount);
+```
+
+- Callable **only strictly after** `exerciseDeadline` — reverts `NotYetExpired` on or
+  before it (while the option is still live, use `burn` or `exercise` instead).
+- Burns the **long side only**: it touches neither the `Receipt` nor the collateral pool,
+  so it has no effect on the redemption pool or the solvency invariant. Short-side
+  collateral is still reclaimed separately via `Receipt.redeem`.
+- Purely a housekeeping convenience — an expired option has no remaining value to lose.
 
 ## Short-side redemption (after the window)
 

@@ -107,7 +107,7 @@ After mint, the Receipt contract holds the collateral. Its balance equals the ou
 
 ### Key contracts
 
-- `Option.sol` — long-side entry point. `mint(amount)`, `mint(to, amount)`, `exercise`, `burn` (pair-burn).
+- `Option.sol` — long-side entry point. `mint(amount)`, `mint(to, amount)`, `exercise`, `burn` (pair-burn), `expire` (burn expired longs after the window).
 - `Receipt.sol` — short side. Holds escrow, enforces 1:1, handles `redeem`. Only mintable/burnable by its paired Option.
 - `Factory.sol` — clone factory and single allowance registry (`approve`, `approveOperator`, `enableAutoMintBurn`, `allowExercise`, `allowRedeem`).
 
