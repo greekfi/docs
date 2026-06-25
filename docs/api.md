@@ -480,7 +480,7 @@ function burn(uint256 amount) public nonReentrant nonZero(amount) beforeDeadline
 
 ##### expire
 
-Burn your own expired long option tokens to clean up dust.
+Burn expired long option tokens to clean up dust.
 
 Only callable strictly after `exerciseDeadline`. Past the deadline an unexercised
 long token is inert — it can no longer be exercised ([canExercise](#canexercise)), transferred or
@@ -489,15 +489,19 @@ forever. This burns the long side only; it touches neither collateral nor the pa
 `Receipt`, so it has no effect on the redemption pool or the solvency invariant
 (short-side collateral is recovered separately via `Receipt.redeem`). Reverts with
 `NotYetExpired` on or before the deadline — use [burn](#burn) or [exercise](#exercise) while live.
+Caller must be `holder` or authorised via `factory.allowExercise(holder, true)`
+(reverts `Unauthorized` otherwise); unlike [exerciseFor](#exercisefor) this is harmless — the
+tokens are already worthless, so a keeper gains nothing by burning them.
 
 
 ```solidity
-function expire(uint256 amount) public nonReentrant nonZero(amount);
+function expire(address holder, uint256 amount) public nonReentrant nonZero(amount);
 ```
 **Parameters**
 
 |Name|Type|Description|
 |----|----|-----------|
+|`holder`|`address`|Address of the long option holder.|
 |`amount`|`uint256`|Amount of long option tokens to burn.|
 
 
@@ -2108,13 +2112,14 @@ function burn(uint256 amount) external;
 
 ##### expire
 
-Burn the caller's own expired long tokens (post-`exerciseDeadline` cleanup). Long side
-only — leaves the Receipt and collateral pool untouched. Reverts `NotYetExpired` on or
-before the deadline.
+Burn `holder`'s expired long tokens (post-`exerciseDeadline` cleanup). Caller must be
+`holder` or authorised via `factory.allowExercise(holder, true)`. Long side only —
+leaves the Receipt and collateral pool untouched. Reverts `NotYetExpired` on or before
+the deadline, `Unauthorized` if the caller lacks the holder's grant.
 
 
 ```solidity
-function expire(uint256 amount) external;
+function expire(address holder, uint256 amount) external;
 ```
 
 #### Events
