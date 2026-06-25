@@ -113,20 +113,22 @@ Receipt fires this automatically — see
 ## Burning expired options (`expire`)
 
 Once `block.timestamp > exerciseDeadline`, an unexercised Option is inert — it can no
-longer be exercised, transferred, or pair-burned, so it would otherwise sit in your
-wallet forever. `expire` lets the holder burn their own expired long tokens to clean them
-up:
+longer be exercised, transferred, or pair-burned, so it would otherwise sit in the
+holder's wallet forever. `expire` burns a holder's expired long tokens to clean them up:
 
 ```solidity
-option.expire(amount);
+option.expire(holder, amount);
 ```
 
 - Callable **only strictly after** `exerciseDeadline` — reverts `NotYetExpired` on or
   before it (while the option is still live, use `burn` or `exercise` instead).
+- Caller must be `holder` or authorised via `factory.allowExercise(holder, true)` (reverts
+  `Unauthorized` otherwise). This reuses the `exerciseFor` keeper grant, but unlike
+  `exerciseFor` it's **safe** — the tokens are already worthless, so a keeper gains nothing
+  by burning them; it's purely a courtesy cleanup.
 - Burns the **long side only**: it touches neither the `Receipt` nor the collateral pool,
   so it has no effect on the redemption pool or the solvency invariant. Short-side
   collateral is still reclaimed separately via `Receipt.redeem`.
-- Purely a housekeeping convenience — an expired option has no remaining value to lose.
 
 ## Short-side redemption (after the window)
 
