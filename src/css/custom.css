@@ -314,3 +314,12 @@ table thead tr {
 [data-theme="dark"] .navbar__items .navbar__link--active:hover {
   color: var(--ifm-font-color-base);
 }
+
+/* API reference: the per-contract <details> blocks render as info "alerts" with a blue
+   fill. Drop the fill and keep only a neutral border so they read as plain outlined
+   sections. */
+.markdown details.alert {
+  --ifm-alert-background-color: transparent;
+  background-color: transparent;
+  border: 1px solid var(--ifm-color-emphasis-300);
+}
