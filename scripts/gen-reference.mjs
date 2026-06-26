@@ -69,7 +69,10 @@ function stripNonPublicMembers(md) {
       const tail = h2 === -1 ? "" : chunk.slice(h2);
       const fence = body.match(/```solidity\n([\s\S]*?)```/);
       const sig = fence ? fence[1] : "";
-      const drop = /\bmodifier\b/.test(sig) || (/\bfunction\b/.test(sig) && /\b(internal|private)\b/.test(sig));
+      // Drop anything not part of the external surface: internal/private members (functions
+      // AND state variables) and modifiers. Public/external functions, public state-var
+      // getters, constants, events, errors and structs (no internal/private keyword) stay.
+      const drop = /\bmodifier\b/.test(sig) || /\b(internal|private)\b/.test(sig);
       return (drop ? "" : body) + tail;
     })
     .join("");

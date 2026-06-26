@@ -1144,47 +1144,6 @@ mapping(bytes32 => address) public optionFor
 ```
 
 
-##### _allowances
-Per-token allowance table: `_allowances[token][owner] -> amount`.
-
-
-```solidity
-mapping(address => mapping(address => uint256)) private _allowances
-```
-
-
-##### _approvedOperators
-Operator approval table: `_approvedOperators[owner][operator] -> bool`.
-
-
-```solidity
-mapping(address => mapping(address => bool)) private _approvedOperators
-```
-
-
-##### _exerciseAllowed
-Exercise-allowance table: `_exerciseAllowed[holder][operator] -> bool`. Lets `operator`
-burn `holder`'s options via the on-behalf `Option.exercise` overload.
-
-
-```solidity
-mapping(address => mapping(address => bool)) private _exerciseAllowed
-```
-
-
-##### _redeemAllowed
-Redeem-allowance table: `_redeemAllowed[holder][redeemer] -> bool`. Lets `redeemer`
-trigger `Receipt.redeemFor` on `holder`'s post-window position. Funds always go to
-the holder — the redeemer is a pure trigger. Composability-safe: a Receipt sitting
-inside an ERC4626 vault / Morpho market / multisig cannot be force-unwound by an
-unauthorised third party.
-
-
-```solidity
-mapping(address => mapping(address => bool)) private _redeemAllowed
-```
-
-
 ##### autoMintBurn
 Per-account opt-in for auto-mint on transfer and auto-redeem on receive in `Option`.
 
