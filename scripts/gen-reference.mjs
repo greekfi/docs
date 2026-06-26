@@ -28,14 +28,6 @@ const SECTIONS = [
       { from: "OptionUtils.sol/library.OptionUtils.md", title: "OptionUtils" },
     ],
   },
-  {
-    label: "Interfaces",
-    entries: [
-      { from: "interfaces/IOption.sol/interface.IOption.md", title: "IOption" },
-      { from: "interfaces/IReceipt.sol/interface.IReceipt.md", title: "IReceipt" },
-      { from: "interfaces/IFactory.sol/interface.IFactory.md", title: "IFactory" },
-    ],
-  },
 ];
 
 const KNOWN_SOL = new Set(
