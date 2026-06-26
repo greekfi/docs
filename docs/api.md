@@ -81,45 +81,6 @@ Receipt public receipt
 
 
 #### Functions
-##### notExpired
-
-Blocks `mint_` once the option has expired — no new options past expiration.
-
-
-```solidity
-modifier notExpired() ;
-```
-
-##### beforeDeadline
-
-Blocks transfer paths once the exercise window has closed; the long token remains
-circulating throughout the window so holders can still sell to keepers.
-`block.timestamp == exerciseDeadline` is still IN-window — boundary is inclusive.
-
-
-```solidity
-modifier beforeDeadline() ;
-```
-
-##### canExercise
-
-Gates exercise paths. European reverts pre-expiry with the specific reason; both
-flavours revert with `ExerciseWindowClosed` past `exerciseDeadline`.
-
-
-```solidity
-modifier canExercise() ;
-```
-
-##### nonZero
-
-Rejects zero-amount mutations to keep accounting clean and events meaningful.
-
-
-```solidity
-modifier nonZero(uint256 amount) ;
-```
-
 ##### constructor
 
 Template constructor. Never called for user-facing instances; each clone goes
@@ -278,35 +239,6 @@ function mint(address account, uint256 amount) public nonReentrant;
 |`account`|`address`|Recipient of both `Option` and `Receipt` tokens. Pays the collateral.|
 |`amount`|`uint256`| Collateral-denominated mint amount.|
 
-
-##### mint_
-
-Internal mint path shared by `mint` and auto-mint-on-transfer.
-
-
-```solidity
-function mint_(address account, uint256 amount) internal notExpired nonZero(amount);
-```
-
-##### _settledTransfer
-
-Auto-mint (sender) + auto-burn (receiver) hook around the underlying ERC20 transfer.
-Both legs are gated on each party's `autoMintBurn` opt-in held on the factory.
-Not an override of OZ's `_transfer` (which is non-virtual) — callable from the public
-transfer paths only, so mint/burn don't trigger it.
-**⚠ Operator-mint surface.** The auto-mint branch keys on `from`'s opt-in flag, not on
-whether `msg.sender == from`. When `from` has both granted `factory.approveOperator`
-to some operator AND opted into `factory.enableAutoMintBurn`, the operator can call
-`Option.transferFrom(from, recipient, amount)` for an amount `from` doesn't currently
-hold — auto-mint then pulls `from`'s factory collateral allowance to manufacture the
-missing balance. Combined, the two grants are equivalent to a permit on `from`'s
-collateral. The Factory NatSpec on `approveOperator` and `enableAutoMintBurn` warns
-about this loudly; the surface lives here.
-
-
-```solidity
-function _settledTransfer(address from, address to, uint256 value) internal;
-```
 
 ##### transfer
 
@@ -744,24 +676,6 @@ uint256 public consBacked
 
 
 #### Functions
-##### onlyOption
-
-Restricts a privileged call to the paired `Option` contract only.
-
-
-```solidity
-modifier onlyOption() ;
-```
-
-##### nonZero
-
-Rejects zero-amount mutations.
-
-
-```solidity
-modifier nonZero(uint256 amount) ;
-```
-
 ##### constructor
 
 Template constructor. Never called for user-facing instances; clones are produced
@@ -792,13 +706,6 @@ Underlying collateral token (e.g. WETH). All collateral sits here.
 function collateral() public pure returns (IERC20);
 ```
 
-##### col
-
-
-```solidity
-function col() internal pure returns (IERC20Metadata);
-```
-
 ##### consideration
 
 Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
@@ -806,13 +713,6 @@ Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
 
 ```solidity
 function consideration() public pure returns (IERC20);
-```
-
-##### con
-
-
-```solidity
-function con() internal pure returns (IERC20Metadata);
 ```
 
 ##### option
@@ -970,13 +870,6 @@ Redeem `amount` of the caller's Receipt. Same semantics as [redeem](#redeem).
 function redeem(uint256 amount) public nonReentrant;
 ```
 
-##### _redeem
-
-
-```solidity
-function _redeem(address account, uint256 amount_) internal nonZero(amount_);
-```
-
 ##### sweep
 
 Sweep any residual `token` balance held by this Receipt to `to`. Callable only by
@@ -1020,20 +913,6 @@ function redeemFor(address[] calldata holders) external nonReentrant;
 |----|----|-----------|
 |`holders`|`address[]`|Holders whose receipts to redeem in full.|
 
-
-##### numer
-
-
-```solidity
-function numer() internal pure returns (uint256);
-```
-
-##### denom
-
-
-```solidity
-function denom() internal pure returns (uint256);
-```
 
 ##### toConsideration
 
@@ -1316,20 +1195,6 @@ mapping(address => bool) public autoMintBurn
 
 
 #### Functions
-##### nonZeroAddr
-
-
-```solidity
-modifier nonZeroAddr(address addr) ;
-```
-
-##### nonZero
-
-
-```solidity
-modifier nonZero(uint256 value) ;
-```
-
 ##### constructor
 
 Deploys the Option and Receipt templates internally so they record this factory
@@ -1745,82 +1610,6 @@ shares a single deployed copy of the rendering logic.
 
 
 #### Functions
-##### strike2str
-
-Render an 18-decimal fixed-point strike as a compact, human-readable string.
-
-Rules applied, in order:
-1. No fractional part → print the integer.
-2. Whole > 0 with ≥4 leading fractional zeros → drop the noise (e.g. floating-point
-artifacts from `1e36 / strike` on puts) and print only the integer.
-3. Whole == 0 and >8 leading zeros → scientific notation (`"1e-9"`).
-4. Otherwise → decimal, rounded half-up to 4 significant fractional digits, with
-trailing zeros trimmed. Rounding overflow into the whole part (e.g. `0.99995 → 1`)
-is handled.
-
-
-```solidity
-function strike2str(uint256 _i) internal pure returns (string memory);
-```
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`_i`|`uint256`|Strike price in 18-decimal fixed-point.|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`string`|Human-readable strike (e.g. `"3000"`, `"0.0005"`, `"1e-9"`).|
-
-
-##### zeroPad
-
-
-```solidity
-function zeroPad(uint256 _i) internal pure returns (string memory);
-```
-
-##### epoch2str
-
-Convert a unix timestamp to a `YYYY-MM-DD` (UTC) string.
-
-Uses Howard Hinnant's branchless date algorithm
-(https://howardhinnant.github.io/date_algorithms.html#civil_from_days), which
-encodes the full Gregorian leap-year rules (÷4 except centuries, ÷400) without
-per-year loops. block.timestamp is UTC, so no timezone handling is needed.
-
-
-```solidity
-function epoch2str(uint256 _i) internal pure returns (string memory);
-```
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`_i`|`uint256`|Unix timestamp (seconds since 1970-01-01).|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`string`|Date string (e.g. `1704067200 → "2024-01-01"`).|
-
-
-##### name
-
-
-```solidity
-function name(
-    string memory type_,
-    string memory collSymbol,
-    string memory consSymbol,
-    uint256 _strike,
-    uint256 _expirationDate
-) internal pure returns (string memory);
-```
-
 ##### balancesOf
 
 All four balances that matter for this option in one call.

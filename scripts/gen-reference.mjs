@@ -61,6 +61,28 @@ function stripFirstH1(md) {
   return lines.join("\n");
 }
 
+// The API reference should list only the externally-usable surface. forge doc documents
+// every member — including `internal`/`private` functions and `modifier`s — so drop those
+// `### member` sections, keeping public/external functions, public state-var getters, events,
+// errors, structs and constants. Each member is a `### name` block whose first ```solidity
+// fence holds its declaration; `## Section` headers ride along on the preceding member's tail
+// so they survive even when that member is dropped.
+function stripNonPublicMembers(md) {
+  const chunks = md.split(/(?=^### )/m);
+  return chunks
+    .map((chunk, i) => {
+      if (i === 0 || !chunk.startsWith("### ")) return chunk;
+      const h2 = chunk.search(/^## /m); // a following "## Section" header, if any
+      const body = h2 === -1 ? chunk : chunk.slice(0, h2);
+      const tail = h2 === -1 ? "" : chunk.slice(h2);
+      const fence = body.match(/```solidity\n([\s\S]*?)```/);
+      const sig = fence ? fence[1] : "";
+      const drop = /\bmodifier\b/.test(sig) || (/\bfunction\b/.test(sig) && /\b(internal|private)\b/.test(sig));
+      return (drop ? "" : body) + tail;
+    })
+    .join("");
+}
+
 function rewriteLinks(md) {
   // Walk `[text](href)` pairs. In the single-page layout every link either collapses to
   // an anchor on the same page (for known first-party contracts) or gets unlinked
@@ -143,7 +165,7 @@ async function loadEntry(entry) {
     }
     throw e;
   }
-  return shiftHeadings(escapeJsxReferences(rewriteLinks(stripFirstH1(md))), 2);
+  return shiftHeadings(escapeJsxReferences(rewriteLinks(stripNonPublicMembers(stripFirstH1(md)))), 2);
 }
 
 async function main() {
