@@ -52,33 +52,38 @@ function stripFirstH1(md) {
   return lines.join("\n");
 }
 
-// The API reference should list only the externally-usable surface. forge doc documents
-// every member — including `internal`/`private` functions and `modifier`s — so drop those
-// `### member` sections, keeping public/external functions, public state-var getters, events,
-// errors, structs and constants. Each member is a `### name` block whose first ```solidity
-// fence holds its declaration; `## Section` headers ride along on the preceding member's tail
-// so they survive even when that member is dropped.
-function stripNonPublicMembers(md) {
-  const chunks = md.split(/(?=^### )/m);
-  return chunks
-    .map((chunk, i) => {
-      if (i === 0 || !chunk.startsWith("### ")) return chunk;
-      const h2 = chunk.search(/^## /m); // a following "## Section" header, if any
-      const body = h2 === -1 ? chunk : chunk.slice(0, h2);
-      const tail = h2 === -1 ? "" : chunk.slice(h2);
-      const fence = body.match(/```solidity\n([\s\S]*?)```/);
-      const sig = fence ? fence[1] : "";
-      // Drop anything not part of the external surface: internal/private members (functions
-      // AND state variables) and modifiers. Public/external functions, public state-var
-      // getters, constants, events, errors and structs (no internal/private keyword) stay.
-      const drop = /\bmodifier\b/.test(sig) || /\b(internal|private)\b/.test(sig);
-      if (drop) return tail;
-      // Show functions with their parenthesised parameter list as the heading.
-      const fn = sig.match(/\bfunction\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
-      const out = fn ? body.replace(/^### .*$/m, `### ${fn[1]}(${fn[2].trim()})`) : body;
-      return out + tail;
-    })
-    .join("");
+// The API reference lists only the externally-usable surface, ordered read-first. forge doc
+// documents every member — including `internal`/`private` functions and `modifier`s — so we
+// drop those, parenthesise function headings, and reorder the survivors:
+//   0 reads      — public state-var getters + constants, then `view`/`pure` functions
+//   1 writes     — state-changing functions (and the constructor)
+//   2 events
+//   3 errors
+// Each member is a `### name` block whose first ```solidity fence holds its declaration; the
+// contract's leading prose / `### Subsection` description blocks (no fence) are kept up front.
+function renderMembers(md) {
+  const noGroups = md.replace(/^## .*$\n?/gm, ""); // strip forge's group headers
+  const chunks = noGroups.split(/(?=^### )/m);
+  const preamble = [];
+  const members = [];
+  chunks.forEach((chunk, i) => {
+    if (i === 0 || !chunk.startsWith("### ")) return preamble.push(chunk);
+    const fence = chunk.match(/```solidity\n([\s\S]*?)```/);
+    if (!fence) return preamble.push(chunk); // description subsection, not a member
+    const sig = fence[1];
+    if (/\bmodifier\b/.test(sig) || /\b(internal|private)\b/.test(sig)) return; // drop
+    const fn = sig.match(/\bfunction\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
+    const text = fn ? chunk.replace(/^### .*$/m, `### ${fn[1]}(${fn[2].trim()})`) : chunk;
+    let rank;
+    if (/\bevent\b/.test(sig)) rank = 2;
+    else if (/\berror\b/.test(sig)) rank = 3;
+    else if (/\bconstructor\b/.test(sig)) rank = 1;
+    else if (/\bfunction\b/.test(sig)) rank = /\b(view|pure)\b/.test(sig) ? 0 : 1;
+    else rank = 0; // public state var / constant getter (read)
+    members.push({ rank, i, text });
+  });
+  members.sort((a, b) => a.rank - b.rank || a.i - b.i); // stable: keep source order within a bucket
+  return preamble.join("") + members.map((m) => m.text).join("");
 }
 
 function rewriteLinks(md) {
@@ -95,7 +100,7 @@ function rewriteLinks(md) {
     const m = href.match(/\/([^/]+\.sol)\/[^/]+\.md(?:#.+)?$/);
     if (m && KNOWN_SOL.has(m[1])) {
       const contractTitle = m[1].replace(/\.sol$/, "");
-      return `[${text}](/api/${contractTitle.toLowerCase()})`;
+      return `[${text}](#${contractTitle.toLowerCase()})`; // jump to the contract's <details> block
     }
     if (href.startsWith("#")) return "`" + text + "`"; // stale same-page member anchor → unlink
     // Unknown internal (third-party IERC1271 etc.) — drop link, keep label as inline code.
@@ -163,35 +168,50 @@ async function loadEntry(entry) {
     }
     throw e;
   }
-  // Drop forge-doc's per-contract group headers (## Constants / State Variables / Functions /
-  // Events / Errors / …) — the members read fine without category titles. The contract title
-  // is emitted by main(); members stay at H3 beneath it (no level shift).
-  const stripped = stripNonPublicMembers(stripFirstH1(md)).replace(/^## .*$\n?/gm, "");
-  // Each contract is its own page with an H1 title; members (forge H3) shift up to H2.
-  return shiftHeadings(escapeJsxReferences(rewriteLinks(stripped)), -1);
+  // Filter to the public surface, sort read-first, and shift members (forge H3) up to H2 so
+  // they sit one level under each contract's collapsible <details> block on the single page.
+  return shiftHeadings(escapeJsxReferences(rewriteLinks(renderMembers(stripFirstH1(md)))), -1);
 }
 
 async function main() {
-  const OUT_DIR = path.join(ROOT, "docs", "docs", "api");
-  // Reset prior output: the old single page, the directory, and any earlier "reference" dir.
+  // Single page; each contract is its own collapsible <details> block (id = anchor target).
   await fs.rm(path.join(ROOT, "docs", "docs", "reference"), { recursive: true, force: true });
-  await fs.rm(OUT_FILE, { force: true });
-  await fs.rm(OUT_DIR, { recursive: true, force: true });
-  await fs.mkdir(OUT_DIR, { recursive: true });
+  await fs.rm(path.join(ROOT, "docs", "docs", "api"), { recursive: true, force: true });
 
-  let pos = 0;
+  const chunks = [
+    frontmatter({
+      title: "API Reference",
+      sidebar_label: "API Reference",
+      sidebar_position: 5,
+      description: "Auto-generated per-contract reference rendered from NatSpec via forge doc.",
+    }),
+    "# API Reference",
+    "",
+    "Auto-generated from the NatSpec in `foundry/contracts/`. Each contract is collapsible; reads",
+    "are listed before state-changing functions. Run `yarn docs:gen` from the repo root to refresh.",
+    "",
+  ];
+
   let count = 0;
   for (const section of SECTIONS) {
     for (const entry of section.entries) {
-      pos += 1;
-      const slug = `/api/${entry.title.toLowerCase()}`;
-      const fm = ["---", `title: ${entry.title}`, `sidebar_label: ${entry.title}`, `sidebar_position: ${pos}`, `slug: ${slug}`, "---", ""].join("\n");
-      const body = [`# ${entry.title}`, "", await loadEntry(entry), ""].join("\n");
-      await fs.writeFile(path.join(OUT_DIR, `${entry.title.toLowerCase()}.md`), fm + body);
+      const id = entry.title.toLowerCase();
+      chunks.push(
+        `<details id="${id}">`,
+        `<summary><strong>${entry.title}</strong></summary>`,
+        "",
+        await loadEntry(entry),
+        "",
+        "</details>",
+        "",
+      );
       count += 1;
     }
   }
-  console.log(`[docs:gen] wrote ${count} contract pages → ${path.relative(ROOT, OUT_DIR)}/`);
+
+  await fs.mkdir(path.dirname(OUT_FILE), { recursive: true });
+  await fs.writeFile(OUT_FILE, chunks.join("\n"));
+  console.log(`[docs:gen] wrote ${count} collapsible contracts → ${path.relative(ROOT, OUT_FILE)}`);
 }
 
 main().catch((e) => {
