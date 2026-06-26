@@ -168,9 +168,10 @@ async function loadEntry(entry) {
     }
     throw e;
   }
-  // Filter to the public surface, sort read-first, and shift members (forge H3) up to H2 so
-  // they sit one level under each contract's collapsible <details> block on the single page.
-  return shiftHeadings(escapeJsxReferences(rewriteLinks(renderMembers(stripFirstH1(md)))), -1);
+  // Filter to the public surface, sort read-first. Members (forge H3) shift to H4 so they sit
+  // inside each contract's collapsible <details> WITHOUT entering the right-hand TOC — that TOC
+  // shows only the contract H2 headings, restoring the per-contract organisation.
+  return shiftHeadings(escapeJsxReferences(rewriteLinks(renderMembers(stripFirstH1(md)))), 1);
 }
 
 async function main() {
@@ -195,10 +196,14 @@ async function main() {
   let count = 0;
   for (const section of SECTIONS) {
     for (const entry of section.entries) {
-      const id = entry.title.toLowerCase();
+      // `## Contract` heading → shows in the right-hand TOC (per-contract organisation) and
+      // auto-slugs to #contract for cross-refs; members live inside a collapsible <details>
+      // just beneath it (H4 → not in the TOC).
       chunks.push(
-        `<details id="${id}">`,
-        `<summary><strong>${entry.title}</strong></summary>`,
+        `## ${entry.title}`,
+        "",
+        "<details>",
+        "<summary>Functions</summary>",
         "",
         await loadEntry(entry),
         "",

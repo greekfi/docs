@@ -10,8 +10,10 @@ description: "Auto-generated per-contract reference rendered from NatSpec via fo
 Auto-generated from the NatSpec in `foundry/contracts/`. Each contract is collapsible; reads
 are listed before state-changing functions. Run `yarn docs:gen` from the repo root to refresh.
 
-<details id="option">
-<summary><strong>Option</strong></summary>
+## Option
+
+<details>
+<summary>Functions</summary>
 
 **Inherits:**
 ERC20, ReentrancyGuardTransient
@@ -38,7 +40,7 @@ exercise; the protocol just enforces timing and the 1:1 collateral invariant.
 Pair `burn` (matched long+short burn) is available **pre-expiration only**: once the
 option enters settlement, the only exits are `exercise` (window) and pro-rata `redeem`
 (post-window).
-## Auto-mint / auto-burn
+#### Auto-mint / auto-burn
 Addresses that have opted in via `factory.enableAutoMintBurn(true)` get two
 transfer-time conveniences:
 - **Auto-mint** — if the sender tries to transfer more `Option` than they hold,
@@ -47,7 +49,7 @@ the contract pulls enough collateral from the sender and mints the deficit.
 token, incoming `Option` is immediately burned pair-wise, returning collateral.
 Both behaviours are opt-in per-account and make it possible to treat `Option` and
 its underlying collateral as interchangeable for power users (e.g. vaults).
-## Supported tokens
+#### Supported tokens
 Standard ERC-20 collateral/consideration only, with exact, balance-preserving transfers.
 Fee-on-transfer and rebasing / elastic-supply tokens are NOT supported — they break the
 protocol's 1:1 accounting (deposits, exercise, redemption, solvency). See `Factory` and
@@ -57,7 +59,7 @@ Deployed once as a template; the factory produces per-option instances via
 EIP-1167 minimal proxy clones. `init()` is used instead of a constructor.
 
 
-## FACTORY
+#### FACTORY
 Factory that created this option. Set in the template constructor (= the factory
 that deployed it) and inherited by every clone via the template's runtime bytecode.
 
@@ -67,7 +69,7 @@ IFactory public immutable FACTORY
 ```
 
 
-## receipt
+#### receipt
 Paired short-side ERC20 (collateral receipt) that holds the collateral and handles
 settlement math. Doubles as the [init](#option) guard — non-zero means initialised.
 
@@ -77,7 +79,7 @@ Receipt public receipt
 ```
 
 
-## factory()
+#### factory()
 
 Address of the `Factory` that created this option. Read from the paired Receipt.
 
@@ -86,7 +88,7 @@ Address of the `Factory` that created this option. Read from the paired Receipt.
 function factory() public view returns (address);
 ```
 
-## collateral()
+#### collateral()
 
 Underlying collateral token (e.g. WETH for a WETH/USDC call).
 
@@ -95,7 +97,7 @@ Underlying collateral token (e.g. WETH for a WETH/USDC call).
 function collateral() public view returns (address);
 ```
 
-## consideration()
+#### consideration()
 
 Consideration / quote token (e.g. USDC for a WETH/USDC call).
 
@@ -104,7 +106,7 @@ Consideration / quote token (e.g. USDC for a WETH/USDC call).
 function consideration() public view returns (address);
 ```
 
-## expirationDate()
+#### expirationDate()
 
 Unix timestamp at which the option expires.
 
@@ -113,7 +115,7 @@ Unix timestamp at which the option expires.
 function expirationDate() public view returns (uint40);
 ```
 
-## exerciseDeadline()
+#### exerciseDeadline()
 
 Unix timestamp at which the post-expiry exercise window closes.
 
@@ -122,7 +124,7 @@ Unix timestamp at which the post-expiry exercise window closes.
 function exerciseDeadline() public view returns (uint64);
 ```
 
-## strike()
+#### strike()
 
 Strike price in 18-decimal fixed point, encoded as "consideration per collateral".
 
@@ -133,7 +135,7 @@ For puts, this stores the *inverse* of the human-readable strike (see [name](#op
 function strike() public view returns (uint256);
 ```
 
-## isPut()
+#### isPut()
 
 `true` if this is a put option; `false` for calls.
 
@@ -142,7 +144,7 @@ function strike() public view returns (uint256);
 function isPut() public view returns (bool);
 ```
 
-## isEuro()
+#### isEuro()
 
 `true` for European-style options (exercise barred pre-expiry; only the post-expiry
 window is exercisable). `false` for American (any time before `exerciseDeadline`).
@@ -152,7 +154,7 @@ window is exercisable). `false` for American (any time before `exerciseDeadline`
 function isEuro() public view returns (bool);
 ```
 
-## decimals()
+#### decimals()
 
 Option token shares the collateral's decimals so 1 option token ↔ 1 collateral unit.
 
@@ -161,7 +163,7 @@ Option token shares the collateral's decimals so 1 option token ↔ 1 collateral
 function decimals() public view override returns (uint8);
 ```
 
-## name()
+#### name()
 
 Human-readable token name in the form `OPT[E/A]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
 The `OPTE-` prefix flags European options, `OPTA-` flags American options.
@@ -173,7 +175,7 @@ For puts the displayed strike is inverted back (`1e36 / strike`) to the human fo
 function name() public view override returns (string memory);
 ```
 
-## symbol()
+#### symbol()
 
 Same as [name](#option). Matching name/symbol keeps wallets and explorers in sync.
 
@@ -182,7 +184,7 @@ Same as [name](#option). Matching name/symbol keeps wallets and explorers in syn
 function symbol() public view override returns (string memory);
 ```
 
-## balancesOf(address account)
+#### balancesOf(address account)
 
 All four balances that matter for this option in one call.
 
@@ -203,7 +205,7 @@ function balancesOf(address account) public view returns (Balances memory);
 |`<none>`|`Balances`|A `Balances` struct: collateral token, consideration token, long option, short receipt.|
 
 
-## details()
+#### details()
 
 Full option descriptor — addresses, token metadata, strike, expiry, deadline.
 Convenient one-shot read for frontends.
@@ -213,7 +215,7 @@ Convenient one-shot read for frontends.
 function details() public view returns (OptionInfo memory);
 ```
 
-## constructor
+#### constructor
 
 Template constructor. Never called for user-facing instances; each clone goes
 through [init](#option) instead. Sets `receipt` to a non-zero sentinel so the template
@@ -224,7 +226,7 @@ itself fails the [init](#option) guard.
 constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_);
 ```
 
-## init(address receipt_)
+#### init(address receipt_)
 
 Initialises a freshly-cloned Option. Called exactly once by the factory.
 
@@ -239,7 +241,7 @@ function init(address receipt_) public;
 |`receipt_`|`address`|Address of the paired `Receipt` contract — immutable for this option.|
 
 
-## mint(uint256 amount)
+#### mint(uint256 amount)
 
 Mint `amount` option tokens to the caller, collateralised 1:1 with the underlying.
 
@@ -248,7 +250,7 @@ Mint `amount` option tokens to the caller, collateralised 1:1 with the underlyin
 function mint(uint256 amount) public nonReentrant;
 ```
 
-## mint(address account, uint256 amount)
+#### mint(address account, uint256 amount)
 
 Mint `amount` option tokens to `account`. Collateral is pulled from `account` via
 the factory's centralised allowance, so the caller must be `account` itself or a
@@ -267,7 +269,7 @@ function mint(address account, uint256 amount) public nonReentrant;
 |`amount`|`uint256`| Collateral-denominated mint amount.|
 
 
-## transfer(address to, uint256 amount)
+#### transfer(address to, uint256 amount)
 
 Overridden to run the auto-mint / auto-burn hook. Reverts post-expiry —
 the long token stops circulating once expiration passes.
@@ -277,7 +279,7 @@ the long token stops circulating once expiration passes.
 function transfer(address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
 ```
 
-## transferFrom(address from, address to, uint256 amount)
+#### transferFrom(address from, address to, uint256 amount)
 
 Skips `_spendAllowance` when `msg.sender` is a factory-approved operator for `from`
 (ERC-1155 style blanket approval across every option in the protocol).
@@ -287,7 +289,7 @@ Skips `_spendAllowance` when `msg.sender` is a factory-approved operator for `fr
 function transferFrom(address from, address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
 ```
 
-## exercise()
+#### exercise()
 
 Exercise all of the caller's own options: pay consideration, receive collateral.
 
@@ -299,7 +301,7 @@ so msg.sender pays AND msg.sender receives (no dangerous asymmetry).
 function exercise() public;
 ```
 
-## exercise(uint256 amount)
+#### exercise(uint256 amount)
 
 Exercise `amount` of the caller's own options: pay consideration, receive collateral.
 
@@ -317,7 +319,7 @@ function exercise(uint256 amount) public;
 |`amount`|`uint256`|Collateral units to receive. Consideration paid = `ceil(amount * strike)`.|
 
 
-## settle(Option opt, address holder, uint256 amount, uint256 minSurplus)
+#### settle(Option opt, address holder, uint256 amount, uint256 minSurplus)
 
 **Dangerous keeper path** — burn `amount` of `holder`'s options; `msg.sender` pays
 the consideration and receives the collateral. The holder gets nothing on-chain.
@@ -395,7 +397,7 @@ function exerciseFor(address holder, uint256 amount) public canExercise nonReent
 |`<none>`|`uint256`|The amount of collateral units actually exercised (== `amount` on success).|
 
 
-## exerciseFor(address[] calldata holders, uint256[] calldata amounts)
+#### exerciseFor(address[] calldata holders, uint256[] calldata amounts)
 
 Batch variant of `exerciseFor(address,uint256)`. Same dangerous semantics — the
 caller pays consideration and receives collateral for every holder. Exercises
@@ -417,7 +419,7 @@ function exerciseFor(address[] calldata holders, uint256[] calldata amounts) ext
 |`amounts`|`uint256[]`|Per-holder collateral amounts to exercise; must align 1:1 with `holders`.|
 
 
-## burn(uint256 amount)
+#### burn(uint256 amount)
 
 Burn matched `Option` + `Receipt` pairs to recover the underlying collateral.
 
@@ -437,7 +439,7 @@ function burn(uint256 amount) public nonReentrant nonZero(amount) beforeDeadline
 |`amount`|`uint256`|Collateral-denominated amount to burn from each side.|
 
 
-## expire(address holder, uint256 amount)
+#### expire(address holder, uint256 amount)
 
 Burn expired long option tokens to clean up dust.
 
@@ -464,7 +466,7 @@ function expire(address holder, uint256 amount) public nonReentrant nonZero(amou
 |`amount`|`uint256`|Amount of long option tokens to burn.|
 
 
-## Mint
+#### Mint
 Emitted when new options are minted against fresh collateral.
 
 
@@ -480,7 +482,7 @@ event Mint(address longOption, address holder, uint256 amount);
 |`holder`|`address`|     The account credited with the new tokens.|
 |`amount`|`uint256`|     Collateral-denominated amount (same decimals as the collateral token).|
 
-## Exercise
+#### Exercise
 Emitted when an option is exercised.
 
 
@@ -497,7 +499,7 @@ event Exercise(address longOption, address caller, address holder, uint256 amoun
 |`holder`|`address`|     The account whose options were burned.|
 |`amount`|`uint256`|     Collateral units delivered (consideration paid is `toConsideration(amount, true)`, ceil).|
 
-## Expire
+#### Expire
 Emitted when a holder burns expired (post-deadline) long option tokens via [expire](#option).
 
 
@@ -514,7 +516,7 @@ event Expire(address longOption, address caller, address holder, uint256 amount)
 |`holder`|`address`|     The account whose options were burned (== `caller`).|
 |`amount`|`uint256`|     Amount of options burned.|
 
-## ContractExpired
+#### ContractExpired
 Thrown when a call that requires a live option is made after expiration.
 
 
@@ -522,7 +524,7 @@ Thrown when a call that requires a live option is made after expiration.
 error ContractExpired();
 ```
 
-## ZeroValue
+#### ZeroValue
 Thrown when `amount == 0`.
 
 
@@ -530,7 +532,7 @@ Thrown when `amount == 0`.
 error ZeroValue();
 ```
 
-## InvalidValue
+#### InvalidValue
 Thrown when batch `exerciseFor` is given `holders`/`amounts` arrays of unequal length.
 
 
@@ -538,7 +540,7 @@ Thrown when batch `exerciseFor` is given `holders`/`amounts` arrays of unequal l
 error InvalidValue();
 ```
 
-## ExerciseWindowClosed
+#### ExerciseWindowClosed
 Thrown when exercise is attempted after `exerciseDeadline`.
 
 
@@ -546,7 +548,7 @@ Thrown when exercise is attempted after `exerciseDeadline`.
 error ExerciseWindowClosed();
 ```
 
-## InvalidExercise
+#### InvalidExercise
 Thrown when pre-expiry exercise is attempted on a European option.
 
 
@@ -554,7 +556,7 @@ Thrown when pre-expiry exercise is attempted on a European option.
 error InvalidExercise();
 ```
 
-## AlreadyInitialized
+#### AlreadyInitialized
 Thrown when [init](#option) is called on a clone that has already been initialised, or on
 the template (whose `receipt` is set to a sentinel by the constructor).
 
@@ -563,7 +565,7 @@ the template (whose `receipt` is set to a sentinel by the constructor).
 error AlreadyInitialized();
 ```
 
-## Unauthorized
+#### Unauthorized
 Thrown when [init](#option) is called by anyone other than the factory.
 
 
@@ -571,7 +573,7 @@ Thrown when [init](#option) is called by anyone other than the factory.
 error Unauthorized();
 ```
 
-## NotYetExpired
+#### NotYetExpired
 Thrown when [expire](#option) is called on or before `exerciseDeadline` (the option is still live).
 
 
@@ -583,8 +585,10 @@ error NotYetExpired();
 
 </details>
 
-<details id="receipt">
-<summary><strong>Receipt</strong></summary>
+## Receipt
+
+<details>
+<summary>Functions</summary>
 
 **Inherits:**
 ERC20, ReentrancyGuardTransient, Clone
@@ -606,10 +610,10 @@ No oracle is consulted at any point. Settlement is purely time-gated:
 | European  | `true`   | reverts             | allowed            | `redeem` (cons-first, then coll 1:1)  |
 The exercise window closes for everyone at `exerciseDeadline = expirationDate + windowSeconds`.
 Pair-redeem (`burn`, called by Option) stays available pre-deadline.
-## Rounding
+#### Rounding
 - Collections from users (exercise): round UP (`toConsideration(amount, true)`).
 - Payouts to users (redeem): round DOWN (floor).
-## Supported tokens
+#### Supported tokens
 This contract physically holds every collateral and consideration token for the pair and
 tracks them 1:1 against its accounting, so the collateral/consideration MUST be standard
 ERC-20 tokens with exact, balance-preserving transfers. Fee-on-transfer and rebasing /
@@ -624,7 +628,7 @@ expirationDate, exerciseDeadline, isPut, isEuro, decimals, option) is appended t
 clone's runtime bytecode at deploy time and read via `Clone._getArg*` helpers
 (CALLDATALOAD, ~3 gas). There is no `init` function — the clone is fully configured
 the moment its bytecode is written.
-## Immutable args layout (packed, 112 bytes)
+#### Immutable args layout (packed, 112 bytes)
 offset  0   strike            uint256  (32B)
 offset 32   collateral        address  (20B)
 offset 52   consideration     address  (20B)
@@ -637,7 +641,7 @@ offset 110  decimals      uint8    (1B)
 offset 111  consDecimals      uint8    (1B)
 
 
-## factory
+#### factory
 Factory that created this option, used to pull tokens through its Permit2-style
 allowance registry. Set in the template constructor (= the factory that deployed
 it) and inherited by every clone via the template's runtime bytecode.
@@ -648,7 +652,7 @@ IFactory public immutable factory
 ```
 
 
-## STRIKEDEC
+#### STRIKEDEC
 Decimal basis of the strike — fixed at 18 and independent of token decimals.
 
 
@@ -657,7 +661,7 @@ uint8 public constant STRIKEDEC = 18
 ```
 
 
-## consBacked
+#### consBacked
 Receipt-units the consideration pool can still back at strike rate. Incremented on
 [exercise](#receipt) (cons inflow) and decremented by the cons leg of [_redeem](#receipt) (cons payout);
 the collateral leg of redeem leaves it untouched. Equal to (total exercised − total
@@ -670,7 +674,7 @@ uint256 public consBacked
 ```
 
 
-## strike()
+#### strike()
 
 Strike price, 18-decimal fixed point (consideration per collateral; inverted for puts).
 
@@ -679,7 +683,7 @@ Strike price, 18-decimal fixed point (consideration per collateral; inverted for
 function strike() public pure returns (uint256);
 ```
 
-## collateral()
+#### collateral()
 
 Underlying collateral token (e.g. WETH). All collateral sits here.
 
@@ -688,7 +692,7 @@ Underlying collateral token (e.g. WETH). All collateral sits here.
 function collateral() public pure returns (IERC20);
 ```
 
-## consideration()
+#### consideration()
 
 Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
 
@@ -697,7 +701,7 @@ Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
 function consideration() public pure returns (IERC20);
 ```
 
-## option()
+#### option()
 
 The paired `Option` contract. Only this address can call mint / burn / exercise.
 
@@ -706,7 +710,7 @@ The paired `Option` contract. Only this address can call mint / burn / exercise.
 function option() public pure returns (address);
 ```
 
-## expirationDate()
+#### expirationDate()
 
 Unix timestamp at which the option expires.
 
@@ -715,7 +719,7 @@ Unix timestamp at which the option expires.
 function expirationDate() public pure returns (uint40);
 ```
 
-## exerciseDeadline()
+#### exerciseDeadline()
 
 Unix timestamp at which the post-expiry exercise window closes.
 
@@ -728,7 +732,7 @@ so reading the full 64-bit slot avoids silently truncating the deadline.
 function exerciseDeadline() public pure returns (uint64);
 ```
 
-## isPut()
+#### isPut()
 
 `true` if put, `false` if call.
 
@@ -737,7 +741,7 @@ function exerciseDeadline() public pure returns (uint64);
 function isPut() public pure returns (bool);
 ```
 
-## isEuro()
+#### isEuro()
 
 `true` if European-style.
 
@@ -746,7 +750,7 @@ function isPut() public pure returns (bool);
 function isEuro() public pure returns (bool);
 ```
 
-## decimals()
+#### decimals()
 
 Cached `collateral.decimals()` used in conversion math.
 
@@ -755,7 +759,7 @@ Cached `collateral.decimals()` used in conversion math.
 function decimals() public pure override returns (uint8);
 ```
 
-## consDecimals()
+#### consDecimals()
 
 Cached `consideration.decimals()` used in conversion math.
 
@@ -764,14 +768,14 @@ Cached `consideration.decimals()` used in conversion math.
 function consDecimals() public pure returns (uint8);
 ```
 
-## toConsideration(uint256 amount, bool round)
+#### toConsideration(uint256 amount, bool round)
 
 
 ```solidity
 function toConsideration(uint256 amount, bool round) public pure returns (uint256);
 ```
 
-## toCollateral(uint256 consAmount)
+#### toCollateral(uint256 consAmount)
 
 Convert a consideration amount to the matching collateral-denominated receipt count.
 
@@ -784,21 +788,21 @@ indexers and invariant tests that need the inverse of [toConsideration](#receipt
 function toCollateral(uint256 consAmount) public pure returns (uint256);
 ```
 
-## name()
+#### name()
 
 
 ```solidity
 function name() public view override returns (string memory);
 ```
 
-## symbol()
+#### symbol()
 
 
 ```solidity
 function symbol() public view override returns (string memory);
 ```
 
-## constructor
+#### constructor
 
 Template constructor. Never called for user-facing instances; clones are produced
 by `ClonesWithImmutableArgs.clone(template, args)` and never delegate the
@@ -810,7 +814,7 @@ the template) so every clone-via-delegatecall reads the same FACTORY immutable.
 constructor(string memory name_, string memory symbol_) ERC20(name_, symbol_);
 ```
 
-## mint(address account, uint256 amount)
+#### mint(address account, uint256 amount)
 
 Mint `amount` Receipt tokens to `account`, pulling the matching amount of
 underlying collateral through the factory's allowance registry.
@@ -829,7 +833,7 @@ function mint(address account, uint256 amount) public onlyOption nonReentrant;
 |`amount`|`uint256`| Collateral-denominated amount.|
 
 
-## burn(address account, uint256 amount)
+#### burn(address account, uint256 amount)
 
 Burn matched Option + Receipt pair, return collateral. Only callable by Option.
 
@@ -850,7 +854,7 @@ function burn(address account, uint256 amount) public onlyOption nonReentrant;
 |`amount`|`uint256`| Amount of Receipt tokens to burn.|
 
 
-## exercise(address account, uint256 amount)
+#### exercise(address account, uint256 amount)
 
 Exercise path invoked by Option. `account` both pays the consideration and receives
 the collateral — the two sides are coupled at this boundary so Receipt never has to
@@ -869,7 +873,7 @@ function exercise(address account, uint256 amount) public onlyOption nonReentran
 |`amount`|`uint256`| Collateral units to deliver; consideration collected is `ceil(amount * strike)`.|
 
 
-## redeem()
+#### redeem()
 
 Redeem the caller's full Receipt balance.
 
@@ -889,7 +893,7 @@ the moment the pool can fund it, rather than waiting for the window to close.
 function redeem() public nonReentrant;
 ```
 
-## redeem(uint256 amount)
+#### redeem(uint256 amount)
 
 Redeem `amount` of the caller's Receipt. Same semantics as [redeem](#receipt).
 
@@ -898,7 +902,7 @@ Redeem `amount` of the caller's Receipt. Same semantics as [redeem](#receipt).
 function redeem(uint256 amount) public nonReentrant;
 ```
 
-## sweep(address token, address to)
+#### sweep(address token, address to)
 
 Sweep any residual `token` balance held by this Receipt to `to`. Callable only by
 the factory owner, and only once every receipt has been burned (`totalSupply == 0`),
@@ -917,7 +921,7 @@ function sweep(address token, address to) external nonReentrant;
 |`to`|`address`|   Recipient of the swept balance.|
 
 
-## redeemFor(address[] calldata holders)
+#### redeemFor(address[] calldata holders)
 
 Keeper-triggered batch redeem. For each holder where the caller is authorised via
 `factory.allowRedeem(holder, msg.sender, true)` (or `msg.sender == holder`), the
@@ -942,7 +946,7 @@ function redeemFor(address[] calldata holders) external nonReentrant;
 |`holders`|`address[]`|Holders whose receipts to redeem in full.|
 
 
-## Redeemed
+#### Redeemed
 Emitted on every path that returns collateral or consideration to a user.
 
 
@@ -959,7 +963,7 @@ event Redeemed(address option, address token, address holder, uint256 amount);
 |`holder`|`address`|Recipient of the payout.|
 |`amount`|`uint256`|Token units sent.|
 
-## UnauthorizedCaller
+#### UnauthorizedCaller
 Thrown when a privileged path is called by anyone other than the paired `Option`.
 
 
@@ -967,7 +971,7 @@ Thrown when a privileged path is called by anyone other than the paired `Option`
 error UnauthorizedCaller();
 ```
 
-## ContractExpired
+#### ContractExpired
 Thrown when a pre-expiry-only path (mint) runs after expiration.
 
 
@@ -975,7 +979,7 @@ Thrown when a pre-expiry-only path (mint) runs after expiration.
 error ContractExpired();
 ```
 
-## ZeroValue
+#### ZeroValue
 Thrown on `amount == 0` (or any derived zero-amount the invariant requires to be positive).
 
 
@@ -983,7 +987,7 @@ Thrown on `amount == 0` (or any derived zero-amount the invariant requires to be
 error ZeroValue();
 ```
 
-## ExerciseWindowClosed
+#### ExerciseWindowClosed
 Thrown when exercise is attempted after `exerciseDeadline`.
 
 
@@ -991,7 +995,7 @@ Thrown when exercise is attempted after `exerciseDeadline`.
 error ExerciseWindowClosed();
 ```
 
-## ExerciseWindowOpen
+#### ExerciseWindowOpen
 Thrown when a post-window-only path is called before the window closes.
 
 
@@ -999,7 +1003,7 @@ Thrown when a post-window-only path is called before the window closes.
 error ExerciseWindowOpen();
 ```
 
-## BeforeExerciseWindow
+#### BeforeExerciseWindow
 Thrown when short-side redemption is attempted on a European option before its
 exercise window opens (`block.timestamp < expirationDate`). Mirrors the long-side
 European pre-expiry guard so the revert reason states the schedule explicitly.
@@ -1009,7 +1013,7 @@ European pre-expiry guard so the revert reason states the schedule explicitly.
 error BeforeExerciseWindow();
 ```
 
-## OutstandingReceipts
+#### OutstandingReceipts
 Thrown when [sweep](#receipt) is called while receipts are still outstanding.
 
 
@@ -1017,7 +1021,7 @@ Thrown when [sweep](#receipt) is called while receipts are still outstanding.
 error OutstandingReceipts();
 ```
 
-## InsufficientPool
+#### InsufficientPool
 Thrown when neither the consideration nor the collateral pool can fully fund the
 requested redemption — caller should split into smaller amounts.
 
@@ -1030,8 +1034,10 @@ error InsufficientPool();
 
 </details>
 
-<details id="factory">
-<summary><strong>Factory</strong></summary>
+## Factory
+
+<details>
+<summary>Functions</summary>
 
 **Inherits:**
 Ownable, ReentrancyGuardTransient, IERC20Errors
@@ -1055,7 +1061,7 @@ pattern. Used by trading venues and aggregators.
 3. **Auto-mint / auto-redeem opt-in.** [enableAutoMintBurn](#factory) flips a per-account flag that
 Option consults on transfer to auto-mint deficits and auto-redeem matched Option+Receipt
 on the receiving side.
-## Exercise window
+#### Exercise window
 There is no oracle. Settlement is purely time-gated:
 - `isEuro = false` (American) — exercise allowed from creation through `exerciseDeadline`.
 - `isEuro = true`  (European) — exercise allowed only between `expirationDate` and
@@ -1067,7 +1073,7 @@ European options must pass `windowSeconds > 0` (else `InvalidValue`). After
 `expirationDate + windowSeconds`, exercise reverts (for both flavours) and short-side
 redemption opens. `DEFAULT_EXERCISE_WINDOW` is an informational constant the frontend
 may use as a suggested default; the contract does not consult it.
-## Supported tokens (IMPORTANT)
+#### Supported tokens (IMPORTANT)
 Collateral and consideration MUST be standard ERC-20 tokens with **exact, balance-preserving
 transfers**. The protocol tracks balances 1:1 internally; any token whose `balanceOf` can
 diverge from the amounts actually moved will corrupt that accounting (deposits, redemptions,
@@ -1083,7 +1089,7 @@ Do NOT create an option whose collateral or consideration implements either beha
 accounting will not operate correctly. Frontends MUST surface this when users create options.
 
 
-## RECEIPT_CLONE
+#### RECEIPT_CLONE
 Template Receipt contract; per-option instances are EIP-1167 clones of this.
 
 
@@ -1092,7 +1098,7 @@ address public immutable RECEIPT_CLONE
 ```
 
 
-## OPTION_CLONE
+#### OPTION_CLONE
 Template Option contract; per-option instances are EIP-1167 clones of this.
 
 
@@ -1101,7 +1107,7 @@ address public immutable OPTION_CLONE
 ```
 
 
-## DEFAULT_EXERCISE_WINDOW
+#### DEFAULT_EXERCISE_WINDOW
 Informational suggested-default for the post-expiry exercise window. The contract
 NEVER substitutes this value — `CreateParams.windowSeconds` is taken literally.
 Exposed so frontends can read a canonical "8 hours" without hardcoding it.
@@ -1112,7 +1118,7 @@ uint40 public constant DEFAULT_EXERCISE_WINDOW = 8 hours
 ```
 
 
-## receipts
+#### receipts
 `true` if the address is a Receipt clone this factory created. Doubles as the auth
 gate for [transferFrom](#factory) — only registered Receipts can pull from factory allowances.
 Validate an Option by reading its `receipt()` and confirming
@@ -1124,7 +1130,7 @@ mapping(address => bool) public receipts
 ```
 
 
-## optionFor
+#### optionFor
 Canonical Option address for a given set of economic params, keyed by [optionKey](#factory).
 `address(0)` means no option with those params exists yet. [createOption](#factory) is
 get-or-create: a second call with economically-identical params returns the existing
@@ -1137,7 +1143,7 @@ mapping(bytes32 => address) public optionFor
 ```
 
 
-## autoMintBurn
+#### autoMintBurn
 Per-account opt-in for auto-mint on transfer and auto-redeem on receive in `Option`.
 
 
@@ -1146,7 +1152,7 @@ mapping(address => bool) public autoMintBurn
 ```
 
 
-## optionKey(CreateParams memory p)
+#### optionKey(CreateParams memory p)
 
 Deterministic registry key for a set of economic params. All seven `CreateParams`
 fields are economic identity, so every one is folded into the hash — two params that
@@ -1172,7 +1178,7 @@ function optionKey(CreateParams memory p) public pure returns (bytes32);
 |`<none>`|`bytes32`|The `keccak256` registry key.|
 
 
-## allowance(address token, address owner_)
+#### allowance(address token, address owner_)
 
 Factory-level allowance lookup: how much of `token` can the factory pull from `owner_`?
 
@@ -1194,7 +1200,7 @@ function allowance(address token, address owner_) public view returns (uint256);
 |`<none>`|`uint256`|Current allowance.|
 
 
-## approvedOperator(address owner_, address operator)
+#### approvedOperator(address owner_, address operator)
 
 Is `operator` an approved operator for `owner_`?
 
@@ -1203,7 +1209,7 @@ Is `operator` an approved operator for `owner_`?
 function approvedOperator(address owner_, address operator) external view returns (bool);
 ```
 
-## exerciseAllowed(address holder, address exercisor)
+#### exerciseAllowed(address holder, address exercisor)
 
 Is `exercisor` authorised to burn `holder`'s options on their behalf? Set/cleared
 only via [allowExercise](#factory) — independent of [approveOperator](#factory), which grants transfer
@@ -1214,7 +1220,7 @@ only via [allowExercise](#factory) — independent of [approveOperator](#factory
 function exerciseAllowed(address holder, address exercisor) external view returns (bool);
 ```
 
-## redeemAllowed(address holder, address redeemer)
+#### redeemAllowed(address holder, address redeemer)
 
 Is `redeemer` authorised to trigger `Receipt.redeemFor` on behalf of `holder`?
 
@@ -1223,7 +1229,7 @@ Is `redeemer` authorised to trigger `Receipt.redeemFor` on behalf of `holder`?
 function redeemAllowed(address holder, address redeemer) external view returns (bool);
 ```
 
-## constructor
+#### constructor
 
 Deploys the Option and Receipt templates internally so they record this factory
 as their immutable `factory` (used to gate `init` and skip per-clone storage).
@@ -1233,7 +1239,7 @@ as their immutable `factory` (used to gate `init` and skip per-clone storage).
 constructor() Ownable(msg.sender);
 ```
 
-## createOption(CreateParams memory p)
+#### createOption(CreateParams memory p)
 
 Deploy a new Option + Receipt pair. Emits [OptionCreated](#factory).
 
@@ -1262,7 +1268,7 @@ function createOption(CreateParams memory p) public nonReentrant nonZero(p.strik
 |`option_`|`address`|The canonical `Option` address — either freshly deployed, or the existing option if an economically-identical one already exists (get-or-create; see `optionFor`).|
 
 
-## createOptions(CreateParams[] memory params)
+#### createOptions(CreateParams[] memory params)
 
 Batch form of [createOption](#factory). Same ordering in → same ordering out.
 
@@ -1283,7 +1289,7 @@ function createOptions(CreateParams[] memory params) external returns (address[]
 |`result`|`address[]`|Array of newly-created Option addresses, aligned with `params`.|
 
 
-## transferFrom(address from, address to, uint256 amount, address token)
+#### transferFrom(address from, address to, uint256 amount, address token)
 
 Pull `amount` of `token` from `from` to `to`. Only callable by Receipt clones
 that this factory has created.
@@ -1312,7 +1318,7 @@ function transferFrom(address from, address to, uint256 amount, address token) e
 |`<none>`|`bool`|success Always `true` on success; reverts otherwise.|
 
 
-## approve(address token, uint256 amount)
+#### approve(address token, uint256 amount)
 
 Permit2-style allowance: caller authorises the factory to pull up to `amount` of
 `token` (collateral or consideration) on their behalf when any Option / Receipt
@@ -1338,7 +1344,7 @@ function approve(address token, uint256 amount) public nonZeroAddr(token);
 |`amount`|`uint256`|Allowance to grant (use `type(uint256).max` for infinite, `0` to revoke).|
 
 
-## approveOperator(address operator, bool approved)
+#### approveOperator(address operator, bool approved)
 
 Grant or revoke `operator` blanket authority to move any of the caller's Option tokens
 across every option this factory has created (ERC-1155-style `setApprovalForAll`).
@@ -1372,7 +1378,7 @@ function approveOperator(address operator, bool approved) external nonZeroAddr(o
 |`approved`|`bool`|`true` to grant, `false` to revoke.|
 
 
-## allowExercise(address exercisor, bool allowed)
+#### allowExercise(address exercisor, bool allowed)
 
 Authorise `exercisor` to exercise the caller's options on their behalf.
 
@@ -1394,7 +1400,7 @@ function allowExercise(address exercisor, bool allowed) external nonZeroAddr(exe
 |`allowed`|`bool`|  `true` to grant, `false` to revoke.|
 
 
-## allowRedeem(address redeemer, bool allowed)
+#### allowRedeem(address redeemer, bool allowed)
 
 Authorise `redeemer` to trigger post-window pro-rata redeem on the caller's behalf
 via `Receipt.redeemFor`.
@@ -1416,7 +1422,7 @@ function allowRedeem(address redeemer, bool allowed) external nonZeroAddr(redeem
 |`allowed`|`bool`| `true` to grant, `false` to revoke.|
 
 
-## enableAutoMintBurn(bool enabled)
+#### enableAutoMintBurn(bool enabled)
 
 Opt in to `Option`'s auto-mint-on-send and auto-redeem-on-receive transfer behaviour.
 
@@ -1446,7 +1452,7 @@ function enableAutoMintBurn(bool enabled) external;
 |`enabled`|`bool`|`true` to opt in, `false` to opt out.|
 
 
-## OptionCreated
+#### OptionCreated
 Emitted for every newly-created option.
 
 
@@ -1464,7 +1470,7 @@ event OptionCreated(
 );
 ```
 
-## OperatorApproval
+#### OperatorApproval
 Emitted on [approveOperator](#factory).
 
 
@@ -1472,7 +1478,7 @@ Emitted on [approveOperator](#factory).
 event OperatorApproval(address indexed owner, address indexed operator, bool approved);
 ```
 
-## ExerciseApproval
+#### ExerciseApproval
 Emitted on [allowExercise](#factory).
 
 
@@ -1480,7 +1486,7 @@ Emitted on [allowExercise](#factory).
 event ExerciseApproval(address indexed holder, address indexed exercisor, bool allowed);
 ```
 
-## RedeemApproval
+#### RedeemApproval
 Emitted on [allowRedeem](#factory).
 
 
@@ -1488,7 +1494,7 @@ Emitted on [allowRedeem](#factory).
 event RedeemApproval(address indexed holder, address indexed redeemer, bool allowed);
 ```
 
-## AutoMintBurnUpdated
+#### AutoMintBurnUpdated
 Emitted on [enableAutoMintBurn](#factory).
 
 
@@ -1496,7 +1502,7 @@ Emitted on [enableAutoMintBurn](#factory).
 event AutoMintBurnUpdated(address indexed account, bool enabled);
 ```
 
-## Approval
+#### Approval
 Emitted on [approve](#factory) (factory-level allowance set by token owner).
 
 
@@ -1504,7 +1510,7 @@ Emitted on [approve](#factory) (factory-level allowance set by token owner).
 event Approval(address indexed token, address indexed owner, uint256 amount);
 ```
 
-## InvalidAddress
+#### InvalidAddress
 Thrown when a zero address is supplied where a real contract is required.
 
 
@@ -1512,7 +1518,7 @@ Thrown when a zero address is supplied where a real contract is required.
 error InvalidAddress();
 ```
 
-## InvalidTokens
+#### InvalidTokens
 Thrown when `collateral == consideration` (no real option pair).
 
 
@@ -1520,7 +1526,7 @@ Thrown when `collateral == consideration` (no real option pair).
 error InvalidTokens();
 ```
 
-## InvalidValue
+#### InvalidValue
 Thrown when a value param (strike, expiration, window) is invalid.
 
 
@@ -1528,7 +1534,7 @@ Thrown when a value param (strike, expiration, window) is invalid.
 error InvalidValue();
 ```
 
-## FeeOnTransferNotSupported
+#### FeeOnTransferNotSupported
 Thrown when a token's transferFrom delivers less than `amount` (fee-on-transfer / rebasing).
 
 
