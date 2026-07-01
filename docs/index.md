@@ -35,10 +35,11 @@ and serves as the shared approval hub.
 
 | Network            | Chain ID | Factory |
 |--------------------|---------:|---------|
-| Ethereum (Mainnet) | 1        | `0xbd54f7c909008a11c912a353416d88e5c2f3c4b3` |
-| Base               | 8453     | `0xa77d556536295be287facc7bb4a439d96a8227db` |
-| Arbitrum           | 42161    | `0xd1cb90426042f837a636131c98aca2321b7a4a15` |
-| Ink                | 57073    | `0x799f44d9881a08c226c0c408e60a39d9a1d31d75` |
+| Ethereum (Mainnet) | 1        | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
+| Optimism           | 10       | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
+| Base               | 8453     | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
+| Arbitrum           | 42161    | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
+| Ink                | 57073    | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
 
 :::info
 Unichain (130) and HyperEVM (999) are registered in the frontend; factory deployments
