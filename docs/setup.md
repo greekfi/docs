@@ -108,12 +108,10 @@ You pay the consideration and receive the collateral, which means the considerat
 
 When you can exercise depends on the flavour:
 
-| | Before expiry | In the window | After the deadline |
-|---|---|---|---|
-| **American** | ✅ | --- | --- |
-| **European** | --- | ✅ | --- |
+- **American** - any time before expiration.
+- **European** - only during the window after expiration.
 
-American passes `windowSeconds = 0`, so the window collapses to `expirationDate` and there is nothing after it. European requires `windowSeconds > 0`, and its window runs from `expirationDate` to `exerciseDeadline` (`expirationDate + windowSeconds`). The deadline is **inclusive**, so a transaction landing exactly on it still exercises. See [Settlement](./settlement#exercise).
+See [Settlement](./settlement#exercise).
 
 ## receipt.redeem
 
