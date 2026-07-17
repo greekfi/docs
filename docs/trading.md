@@ -15,7 +15,7 @@ Bebop's docs are the source of truth for the swap mechanics. Start here:
 - [Quote endpoint](https://docs.bebop.xyz/rfq-api/api-reference/quote) · [Order endpoint](https://docs.bebop.xyz/rfq-api/api-reference/order)
 
 :::tip
-For a per-side checklist of exactly which approvals to enable — and where exercise and redemption fit — see the [Setup Matrix](./setup).
+For a per-side checklist of which approvals to enable, and where exercise and redemption fit, see [Setup](./setup).
 :::
 
 ## Why RFQ (and not an AMM)

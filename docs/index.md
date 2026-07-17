@@ -25,7 +25,7 @@ ERC20, making it fungible and transferable hence swappable.
 
 - **[Fundamentals](./fundamentals)** — Option Token + Receipt Token; minting, exercise, redemption; auto-mint/burn.
 - **[Trading](./trading)** — RFQ flows via Bebop, buying and shorting, market-makers, market takers.
-- **[Setup Matrix](./setup)** — per-side checklist: which approvals a holder vs. a writer needs, plus exercise and redemption.
+- **[Setup](./setup)** - per-side checklist: which approvals a holder vs. a writer needs, plus exercise and redemption.
 - **[Settlement](./settlement)** — time-gated exercise, pair-burn, post-window redemption.
 - **[API Reference](./api)** — full contract surface, generated from smart contract code.
 

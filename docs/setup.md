@@ -1,9 +1,9 @@
 ---
-title: Setup Matrix
+title: Setup
 sidebar_position: 4
 ---
 
-# Setup Matrix - Option Holder + Option Writer
+# Setup
 
 Greek options are plain ERC20 tokens, traded through [Bebop](https://bebop.xyz)'s RFQ system and settled as ordinary ERC20 transfers on-chain. Before your wallet can trade, exercise, or redeem, a handful of approvals have to be in place.
 
@@ -113,9 +113,7 @@ When you can exercise depends on the flavour:
 | **American** | ✅ | ✅ | --- |
 | **European** | --- | ✅ | --- |
 
-American is exercisable at any point up to the deadline, including during the window. European is the restricted one: it reverts before expiry and only opens once the window starts.
-
-The window runs from `expirationDate` to `exerciseDeadline` (`expirationDate + windowSeconds`) and closes for both flavours at the same moment. The deadline is **inclusive**, so a transaction landing exactly on it still exercises. See [Settlement](./settlement#exercise).
+The window runs from `expirationDate` to `exerciseDeadline` (`expirationDate + windowSeconds`). The deadline is **inclusive**, so a transaction landing exactly on it still exercises. See [Settlement](./settlement#exercise).
 
 ## receipt.redeem
 
