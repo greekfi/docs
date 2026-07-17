@@ -14,6 +14,10 @@ Bebop's docs are the source of truth for the swap mechanics. Start here:
 - [Token approvals](https://docs.bebop.xyz/core-concepts/token-approvals)
 - [Quote endpoint](https://docs.bebop.xyz/rfq-api/api-reference/quote) · [Order endpoint](https://docs.bebop.xyz/rfq-api/api-reference/order)
 
+:::tip
+For a per-side checklist of exactly which approvals to enable — and where exercise and redemption fit — see the [Setup Matrix](./setup).
+:::
+
 ## Why RFQ (and not an AMM)
 
 Options have high dimensionality — strike × expiry × underlying × call/put — and each series has vastly different liquidity needs. An AMM per series would fragment capital badly. RFQ lets one maker quote the entire book using their own risk engine, and Greek's [auto-minting](./fundamentals#auto-mint--auto-burn) means they don't need to pre-inventory every strike × expiry: options are minted at the moment of sale.
