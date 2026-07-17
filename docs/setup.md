@@ -108,10 +108,12 @@ You pay the consideration and receive the collateral, which means the considerat
 
 When you can exercise depends on the flavour:
 
-- **American** - any time before expiration.
-- **European** - only during the window after expiration.
+| | Before expiry | In the window | After the deadline |
+|---|---|---|---|
+| **American** | ✅ | --- | --- |
+| **European** | --- | ✅ | --- |
 
-See [Settlement](./settlement#exercise).
+Exercise happens before expiration for American, and during the window after expiration for European. See [Settlement](./settlement#exercise).
 
 ## receipt.redeem
 
