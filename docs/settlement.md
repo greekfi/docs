@@ -65,7 +65,7 @@ option.exercise(amount);   // or exercise() for the caller's full balance
   window is exercisable.
 
 Before exercising you must let the factory pull your consideration — the same one-time
-approval pattern used for minting (see [Fundamentals → Exercise](./fundamentals#exercising-on-chain)).
+approval pattern used for minting (see [Fundamentals → Exercise](./fundamentals#exercise)).
 
 ### Keeper exercise (`exerciseFor`)
 

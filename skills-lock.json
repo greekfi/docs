@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "technical-writing": {
+      "source": "mindrally/skills",
+      "sourceType": "github",
+      "skillPath": "technical-writing/SKILL.md",
+      "computedHash": "0544628a33393af1909297224d9346bdc2fedeb47ff5281f77e9b9dac97655fa"
+    }
+  }
+}

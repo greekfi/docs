@@ -57,6 +57,12 @@ const config = {
         title: "Greek",
         items: [
           {
+            to: "/setup",
+            label: "Setup",
+            position: "left",
+            activeBaseRegex: "^/setup",
+          },
+          {
             to: "/fundamentals",
             label: "Fundamentals",
             position: "left",
@@ -93,6 +99,7 @@ const config = {
           {
             title: "Docs",
             items: [
+              { label: "Setup", to: "/setup" },
               { label: "Fundamentals", to: "/fundamentals" },
               { label: "Trading", to: "/trading" },
               { label: "Settlement", to: "/settlement" },
@@ -103,7 +110,7 @@ const config = {
             title: "Code",
             items: [
               { label: "Protocol", href: "https://github.com/greekfi/protocol" },
-              { label: "Web", href: "https://github.com/greekfi/web" },
+              { label: "Contracts", href: "https://github.com/greekfi/contracts" },
             ],
           },
         ],
