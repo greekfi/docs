@@ -15,7 +15,7 @@ Greek options are plain ERC20 tokens traded through [Bebop](https://bebop.xyz)'s
 IERC20(usdc).approve(bebopContract, type(uint256).max);
 ```
 
-The quote response carries the settlement address for your chain (`0xbbbbbBB520d69a9775E85b458C58c648259FAD5F`), so prefer reading it off the quote. See [Trading](./trading) for the quote flow.
+Read the settlement address off the quote response — it carries the `approvalTarget` for your chain. See Bebop's [RFQ API](https://docs.bebop.xyz/rfq-api/introduction) for the quote flow.
 
 **2. Buy.** Request a quote, sign, done — the option tokens arrive in your wallet.
 

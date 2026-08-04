@@ -69,12 +69,6 @@ const config = {
             activeBaseRegex: "^/fundamentals",
           },
           {
-            to: "/trading",
-            label: "Trading",
-            position: "left",
-            activeBaseRegex: "^/trading",
-          },
-          {
             to: "/settlement",
             label: "Settlement",
             position: "left",
@@ -101,7 +95,6 @@ const config = {
             items: [
               { label: "Setup", to: "/setup" },
               { label: "Fundamentals", to: "/fundamentals" },
-              { label: "Trading", to: "/trading" },
               { label: "Settlement", to: "/settlement" },
               { label: "API Reference", to: "/api" },
             ],
