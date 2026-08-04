@@ -57,30 +57,6 @@ const config = {
         title: "Greek",
         items: [
           {
-            to: "/setup",
-            label: "Setup",
-            position: "left",
-            activeBaseRegex: "^/setup",
-          },
-          {
-            to: "/fundamentals",
-            label: "Fundamentals",
-            position: "left",
-            activeBaseRegex: "^/fundamentals",
-          },
-          {
-            to: "/settlement",
-            label: "Settlement",
-            position: "left",
-            activeBaseRegex: "^/settlement",
-          },
-          {
-            to: "/api",
-            label: "API Reference",
-            position: "left",
-            activeBaseRegex: "^/api",
-          },
-          {
             href: "https://github.com/greekfi/protocol",
             label: "GitHub",
             position: "right",
@@ -90,15 +66,6 @@ const config = {
       footer: {
         style: "dark",
         links: [
-          {
-            title: "Docs",
-            items: [
-              { label: "Setup", to: "/setup" },
-              { label: "Fundamentals", to: "/fundamentals" },
-              { label: "Settlement", to: "/settlement" },
-              { label: "API Reference", to: "/api" },
-            ],
-          },
           {
             title: "Code",
             items: [
