@@ -66,4 +66,4 @@ receipt.redeem();          // your whole balance
 receipt.redeem(1e18);      // a specific amount
 ```
 
-Redemption is first-come-first-served on the consideration pool: an early redeemer is paid in consideration, later ones in collateral. The amount you're owed is the same either way. See [Settlement](./settlement#short-side-redemption-after-the-window).
+Redemption is first-come-first-served on the consideration pool: an early redeemer is paid in consideration, later ones in collateral. The amount you're owed is the same either way. See [Settlement](./settlement#redemption-the-short-side-gets-paid).

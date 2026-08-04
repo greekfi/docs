@@ -5,81 +5,34 @@ sidebar_position: 3
 
 # Trading
 
-Greek options are plain ERC20 tokens. You can move them through any DEX/AMM/CLOB that speaks ERC20 — but for real price discovery on options, RFQ (request-for-quote) against a professional market maker is the right tool. Greek has partnered with [Bebop](https://bebop.xyz) for the production trading path.
+Greek options trade through [Bebop](https://bebop.xyz)'s RFQ system: you request a quote, a market maker signs a price, and the swap settles as ordinary ERC20 transfers in one transaction. Bebop's docs are the source of truth for the swap mechanics: [RFQ API](https://docs.bebop.xyz/rfq-api/introduction) · [Settlement contracts](https://docs.bebop.xyz/core-concepts/settlement-smart-contracts) · [Token approvals](https://docs.bebop.xyz/core-concepts/token-approvals).
 
-Bebop's docs are the source of truth for the swap mechanics. Start here:
+The approvals each side needs are in [Setup](./setup).
 
-- [RFQ API — Introduction](https://docs.bebop.xyz/rfq-api/introduction)
-- [Settlement & smart contracts](https://docs.bebop.xyz/core-concepts/settlement-smart-contracts)
-- [Token approvals](https://docs.bebop.xyz/core-concepts/token-approvals)
-- [Quote endpoint](https://docs.bebop.xyz/rfq-api/api-reference/quote) · [Order endpoint](https://docs.bebop.xyz/rfq-api/api-reference/order)
+## Why RFQ
 
-:::tip
-For a per-side checklist of which approvals to enable, and where exercise and redemption fit, see [Setup](./setup).
-:::
+Options fragment liquidity — strike × expiry × underlying × call/put. Instead of an AMM pool per series, one market maker quotes the whole book, and [auto-mint](./fundamentals#auto-mint--auto-burn) lets them mint options at the moment of sale instead of pre-inventorying every strike.
 
-## Why RFQ (and not an AMM)
+## Buying
 
-Options have high dimensionality — strike × expiry × underlying × call/put — and each series has vastly different liquidity needs. An AMM per series would fragment capital badly. RFQ lets one maker quote the entire book using their own risk engine, and Greek's [auto-minting](./fundamentals#auto-mint--auto-burn) means they don't need to pre-inventory every strike × expiry: options are minted at the moment of sale.
+1. `GET /quote` from Bebop — returns an order signed by the maker.
+2. Approve your cash to the `approvalTarget` carried in the quote.
+3. Submit the settlement transaction. Cash leaves, option tokens arrive.
 
-## How Greek + Bebop fit
+## Selling / writing
 
-Bebop's settlement flow is entirely standard ERC20 — maker's tokens are pulled via `transferFrom` and delivered to the taker, atomically, in one tx. Because Greek's `Option` contract overrides `transferFrom` with an auto-mint hook, nothing special has to happen on Bebop's side:
+Do the writer setup once ([Setup](./setup#im-a-writer-sell-then-exit)). After that, every sale settles itself:
 
 ```
 Bebop settlement  ──▶  option.transferFrom(maker, taker, amount)
                              │
                              ▼
-                  Greek auto-mint fires (if maker granted MINT):
-                    pulls collateral → mints option+receipt → transfers option
+                  auto-mint pulls collateral → mints Option + Receipt
+                  → delivers the Options to the taker, pays you cash
 ```
 
-Net: the MM holds collateral, signs a quote, and the option materializes at the exact moment the taker pays for it.
-
-## Buy flow (taker's perspective)
-
-1. `GET /quote` on Bebop → signed EIP-712 order from the maker.
-2. Approve cash to Bebop's `approvalTarget` (returned by the quote — **don't hardcode**).
-3. Call settlement with the received quote.
-
-```solidity
-// After receiving a signed quote from the MM:
-IBebopSettlement(bebopContract).swapSingle(order, makerSig, filledAmount);
-```
-
-Result: cash leaves you, option tokens arrive at `receiver`.
-
-## Sell / write flow (maker-side setup)
-
-One-time setup so your wallet can sell Greek options through Bebop with auto-mint:
-
-```solidity
-// Approve collateral to the factory (the ERC20 allowance is the only gate)
-IERC20(collateral).approve(address(factory), type(uint256).max);
-
-// One permission grant covers every option in the factory:
-// TRANSFER (pull option tokens) | MINT (auto-mint on shortfall) | BURN (net buy-backs) = 7
-factory.setPermissions(bebopApprovalTarget, 7);
-```
-
-Now every RFQ sale signed by your wallet atomically:
-1. Pulls `amount` collateral from you,
-2. Mints `amount` Option + `amount` Receipt tokens to you,
-3. Delivers the Options to the taker,
-4. Pays you the cash.
-
-You end up short (holding Receipt tokens). The original collateral is locked in the Receipt contract backing that short — unwound by buying options back (pair-burn), or reclaimed via `Receipt.redeem` once the exercise window closes.
-
+You end up short, holding Receipts. Unwind by buying back, or redeem after the window closes ([Settlement](./settlement)).
 
 ## Pricing
 
-The Greek market maker may use a Black-Scholes formula to price their option. Most MMs use sophisticated strategies off-chain to price and deliver a quote when requested. Typically to price you need the following pieces of information.
-
-- **Spot** from Chainlink (primary) with Uniswap v3 TWAP as fallback.
-- **Volatility** from a per-underlying surface (ATM-anchored, quadratic skew optional).
-- **Inventory skew** — widens asks and tightens bids when the MM is net short, to pull back toward flat.
-- **Base spread** configurable per venue.
-
-{/* ## Vault flows
-
-Liquidity providers can route through a vault (`YieldVault.sol`) that holds collateral and lets an authorized operator sign RFQ orders via EIP-1271 contract signatures. The vault becomes Bebop's `maker_address`; everything downstream (including auto-mint) is identical to the EOA case. */}
+Quotes come from the maker's own model — typically Black-Scholes over an off-chain spot feed, a volatility surface, and spread/inventory adjustments. Nothing on-chain constrains the price: a quote is a bilateral offer you accept or decline.
