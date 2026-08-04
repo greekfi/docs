@@ -30,7 +30,7 @@ Bebop's settlement flow is entirely standard ERC20 — maker's tokens are pulled
 Bebop settlement  ──▶  option.transferFrom(maker, taker, amount)
                              │
                              ▼
-                  Greek auto-mint fires (if maker opted in):
+                  Greek auto-mint fires (if maker granted MINT):
                     pulls collateral → mints option+receipt → transfers option
 ```
 
@@ -54,16 +54,12 @@ Result: cash leaves you, option tokens arrive at `receiver`.
 One-time setup so your wallet can sell Greek options through Bebop with auto-mint:
 
 ```solidity
-// Approve collateral to the factory (ERC20 + factory's internal book)
+// Approve collateral to the factory (the ERC20 allowance is the only gate)
 IERC20(collateral).approve(address(factory), type(uint256).max);
-factory.approve(collateral, type(uint256).max);
 
-// Opt into auto-mint (one flag for all options from this factory)
-factory.enableAutoMintBurn(true);
-
-// Let Bebop's settlement pull option tokens on your behalf
-// (one operator approval covers every option in the factory)
-factory.approveOperator(bebopApprovalTarget, true);
+// One permission grant covers every option in the factory:
+// TRANSFER (pull option tokens) | MINT (auto-mint on shortfall) | BURN (net buy-backs) = 7
+factory.setPermissions(bebopApprovalTarget, 7);
 ```
 
 Now every RFQ sale signed by your wallet atomically:

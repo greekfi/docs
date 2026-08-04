@@ -76,11 +76,12 @@ option.exerciseFor(holders, amounts);   // batch — per-holder amounts, skips b
 
 `exerciseFor` is the **dangerous keeper path**: the caller pays strike *and* receives the
 collateral, while the holder gets nothing on-chain. It's authorised only when
-`msg.sender == holder` or the holder has granted `factory.allowExercise(keeper, true)`.
+`msg.sender == holder` or the holder has granted the keeper the `EXERCISE` bit
+(`factory.addPermissions(keeper, 16)`).
 
-Granting `allowExercise` to a non-trusted address is equivalent to handing it a
+Granting `EXERCISE` to a non-trusted address is equivalent to handing it a
 withdrawal right over your ITM value — use it only with contracts that compensate you
-off-band. Note that `approveOperator` is **not** enough: that gates *transfer*, this
+off-band. Note that the `TRANSFER` bit is **not** enough: that gates *transfer*, this
 gates *consumption*.
 
 The batch form takes a `holders[]` array alongside an `amounts[]` array of the same
@@ -122,10 +123,10 @@ option.expire(holder, amount);
 
 - Callable **only strictly after** `exerciseDeadline` — reverts `NotYetExpired` on or
   before it (while the option is still live, use `burn` or `exercise` instead).
-- Caller must be `holder` or authorised via `factory.allowExercise(holder, true)` (reverts
-  `Unauthorized` otherwise). This reuses the `exerciseFor` keeper grant, but unlike
-  `exerciseFor` it's **safe** — the tokens are already worthless, so a keeper gains nothing
-  by burning them; it's purely a courtesy cleanup.
+- Caller must be `holder` or hold the `BURN` bit in the holder's permission mask (reverts
+  `Unauthorized` otherwise). Unlike the `EXERCISE` grant behind `exerciseFor`, this is
+  **safe** — the tokens are already worthless, so a keeper gains nothing by burning them;
+  it's purely a courtesy cleanup.
 - Burns the **long side only**: it touches neither the `Receipt` nor the collateral pool,
   so it has no effect on the redemption pool or the solvency invariant. Short-side
   collateral is still reclaimed separately via `Receipt.redeem`.
@@ -163,7 +164,7 @@ receipt.redeemFor(holders);   // batch — skips unauthorised entries
 
 `redeemFor` is **composability-safe**, unlike `exerciseFor`: funds always flow to the
 holder, never to the keeper. The keeper is a pure trigger, authorised per holder by
-`factory.allowRedeem(keeper, true)` (or `msg.sender == holder`). A Receipt sitting inside
+the `REDEEM` bit (`factory.addPermissions(keeper, 8)`, or `msg.sender == holder`). A Receipt sitting inside
 an ERC-4626 vault or a Morpho market can't be force-unwound by an unauthorised third
 party.
 
@@ -193,5 +194,5 @@ A time-gated, holder-driven model trades UX for a dramatically smaller attack su
 - **No settlement transaction to censor** — there is no `settle()` step that a negligent
   or adversarial party can strand.
 - **Cost:** passive holders forfeit ITM value if they don't exercise before the deadline.
-  Mitigate by authorising a trusted keeper via `factory.allowExercise`, or by exercising
+  Mitigate by granting a trusted keeper the `EXERCISE` bit, or by exercising
   yourself during the window.

@@ -16,12 +16,11 @@ Use this page as the checklist; follow the links for the mechanics behind each r
 | Step | Read | Holder | Writer |
 |---|---|:---:|:---:|
 | Approve cash (USDC) to swap on Bebop's settlement contract | [Bebop Approvals](#bebop-approvals) | ✅ | ✅ |
-| Approve Options to swap on Bebop's settlement contract | [Bebop Approvals](#bebop-approvals) · [approveOperator](#approveoperator) | ✅ | ✅ |
-| Approve collateral  WETH [Call] to write Options | [weth.approve + factory.approve](#tokenapprove--factoryapprove) | --- | ✅ |
-| Approve collateral  USDC [Put] to write Options | [usdc.approve + factory.approve](#tokenapprove--factoryapprove) | --- | ✅ |
-| Approve consideration  WETH [Put] to exercise | [weth.approve + factory.approve](#tokenapprove--factoryapprove) | ✅ | --- |
-| Approve consideration  USDC [Call] to exercise | [usdc.approve + factory.approve](#tokenapprove--factoryapprove) | ✅ | --- |
-| Approve Auto-mint & auto-burn - mint on sale, unwind on buy-back | [enableAutoMintBurn](#enableautomintburn) | --- | ✅ |
+| Permit Bebop's settlement contract on the factory - transfer, mint on sale, unwind on buy-back | [factory.setPermissions](#factorysetpermissions) | ✅ | ✅ |
+| Approve collateral  WETH [Call] to write Options | [weth.approve](#tokenapprove) | --- | ✅ |
+| Approve collateral  USDC [Put] to write Options | [usdc.approve](#tokenapprove) | --- | ✅ |
+| Approve consideration  WETH [Put] to exercise | [weth.approve](#tokenapprove) | ✅ | --- |
+| Approve consideration  USDC [Call] to exercise | [usdc.approve](#tokenapprove) | ✅ | --- |
 | Exercise before the settlement deadline | [option.exercise](#optionexercise) | ✅ | --- |
 | Redeem after the settlement window closes | [receipt.redeem](#receiptredeem) | --- | ✅ |
 
@@ -35,39 +34,43 @@ IERC20(usdc).approve(bebopContract, type(uint256).max);
 
 The `bebopContract` is `0xbbbbbBB520d69a9775E85b458C58c648259FAD5F`. The quote response carries the settlement target for the chain you're on, so prefer reading it off the quote over pinning a constant. See Bebop's [token approvals](https://docs.bebop.xyz/core-concepts/token-approvals) for more info.
 
-**Note** - for **option tokens** specifically: [`factory.approveOperator`](#approveoperator) (see below) authorises Bebop across every option the factory has ever created, similar to ERC1155, reducing excessive redundancy.
+**Note** - for **option tokens** specifically: [`factory.setPermissions`](#factorysetpermissions) (see below) authorises Bebop across every option the factory has ever created, similar to ERC1155, reducing excessive redundancy.
 
-## approveOperator
+## factory.setPermissions
 
-Greek options are minted per strike × expiry × underlying, so approving each one individually doesn't scale. The factory offers an ERC-1155-style blanket approval instead:
+Greek options are minted per strike × expiry × underlying, so approving each one individually doesn't scale. The factory keeps a permission bitmask per (owner, operator) pair instead - one grant covers every option it has created or ever will. The bits come from `library Perm`: `TRANSFER = 1`, `MINT = 2`, `BURN = 4`, `REDEEM = 8`, `EXERCISE = 16`.
+
+The trading grant is one call:
 
 ```solidity
-// One grant covers every option created by this factory
-factory.approveOperator(bebopSettlement, true);
+// TRANSFER | MINT | BURN = 7
+factory.setPermissions(bebopSettlement, 7);
 ```
 
-Once granted, `bebopSettlement` can call `option.transferFrom(you, taker, amount)` on any option from that factory without a per-option ERC20 allowance. This is what makes a market maker's setup a one-time job rather than a per-series one.
+What each bit does in the trade:
 
-Scope note: this authorises **transfers** of your options and nothing else. It does not let the operator exercise them or touch your collateral directly.
+- **`TRANSFER`** - settlement can call `option.transferFrom(you, taker, amount)` on any option from the factory, no per-option ERC20 allowance needed.
+- **`MINT`** - selling an option you haven't minted auto-mints it inside the transfer, pulling collateral against your factory allowance from [token.approve](#tokenapprove). This is what lets a writer quote without pre-inventorying strikes.
+- **`BURN`** - buying an option back while you hold the matching Receipt pair-burns them on arrival and returns your collateral.
 
-## token.approve + factory.approve
+A pure holder only strictly needs `TRANSFER`; `MINT` and `BURN` only ever fire once you're short, so the combined mask `7` is safe to grant either way. Revoke with `factory.setPermissions(bebopSettlement, 0)`.
+
+Scope note: this grant does **not** include `EXERCISE` or `REDEEM` - the settlement contract can never exercise your options or trigger your redemptions. See [Perm](./api#perm) for the full per-bit read.
+
+## token.approve
 
 Anything the protocol pulls from you is pulled by the **factory**, which is the single transfer authority:
 
 - collateral when you **write**
 - consideration when you **exercise**
 
-It's a two-step approval:
+It's a standard ERC20 allowance to the factory:
 
 ```solidity
-// 1. Standard ERC20 allowance to the factory
 IERC20(token).approve(address(factory), type(uint256).max);
-
-// 2. Register that allowance in the factory's internal book
-factory.approve(token, type(uint256).max);
 ```
 
-Both are required. The first lets the factory move your tokens at all; the second is what Receipt contracts actually check before asking the factory to pull. Approving the factory once covers every option it creates - you never approve an individual Option or Receipt.
+That allowance is the only gate - Receipt contracts pull through the factory against it. Approving the factory once covers every option it creates - you never approve an individual Option or Receipt.
 
 Which token goes here depends on the leg and the flavour:
 
@@ -81,21 +84,6 @@ A put is the mirror of a call: the collateral and consideration swap places. See
 :::note
 Fee-on-transfer tokens are rejected outright - the factory checks the balance delta and reverts with `FeeOnTransferNotSupported`. Rebasing tokens are unsupported and have no on-chain guard; don't use them as collateral.
 :::
-
-## enableAutoMintBurn
-
-```solidity
-factory.enableAutoMintBurn(true);
-```
-
-Off by default, and the single flag enables two behaviours (AutoMint, AutoBurn) across all options during `transfer`/`transferFrom` for Option Writers:
-
-- **Auto-mint (you're the sender).** Selling an option you haven't minted pulls your collateral, mints the Option + Receipt pair, and delivers the Option to the buyer, all inside the `transfer`. This is what lets a maker quote a hundred strikes without pre-inventorying any of them.
-- **Auto-burn (you're the receiver).** Receiving an option while you hold the matching Receipt pair-burns them on arrival and returns your collateral, instead of leaving you sitting on both legs.
-
-Auto-mint requires the collateral approval from [token.approve + factory.approve](#tokenapprove--factoryapprove) to already be in place - it's the allowance the mint pulls against.
-
-Both directions only do something once you're short, since auto-burn needs the matching Receipt in your wallet. That's why this is a writer's flag: a pure holder never holds a Receipt, so neither behaviour ever fires for them. See [Auto-mint & auto-burn](./fundamentals#auto-mint--auto-burn).
 
 ## option.exercise
 

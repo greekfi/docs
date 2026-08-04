@@ -25,6 +25,7 @@ const SECTIONS = [
       { from: "Option.sol/contract.Option.md", title: "Option" },
       { from: "Receipt.sol/contract.Receipt.md", title: "Receipt" },
       { from: "Factory.sol/contract.Factory.md", title: "Factory" },
+      { from: "Permissions.sol/library.Perm.md", title: "Perm" },
     ],
   },
 ];
@@ -83,7 +84,10 @@ function renderMembers(md) {
     members.push({ rank, i, text });
   });
   members.sort((a, b) => a.rank - b.rank || a.i - b.i); // stable: keep source order within a bucket
-  return preamble.join("") + members.map((m) => m.text).join("");
+  return {
+    functions: preamble.join("") + members.filter((m) => m.rank <= 1).map((m) => m.text).join(""),
+    eventsErrors: members.filter((m) => m.rank >= 2).map((m) => m.text).join(""),
+  };
 }
 
 function rewriteLinks(md) {
@@ -171,7 +175,9 @@ async function loadEntry(entry) {
   // Filter to the public surface, sort read-first. Members (forge H3) shift to H4 so they sit
   // inside each contract's collapsible <details> WITHOUT entering the right-hand TOC — that TOC
   // shows only the contract H2 headings, restoring the per-contract organisation.
-  return shiftHeadings(escapeJsxReferences(rewriteLinks(renderMembers(stripFirstH1(md)))), 1);
+  const { functions, eventsErrors } = renderMembers(stripFirstH1(md));
+  const post = (s) => shiftHeadings(escapeJsxReferences(rewriteLinks(s)), 1);
+  return { functions: post(functions), eventsErrors: post(eventsErrors) };
 }
 
 async function main() {
@@ -189,7 +195,8 @@ async function main() {
     "# API Reference",
     "",
     "Auto-generated from the NatSpec in `foundry/contracts/`. Each contract is collapsible; reads",
-    "are listed before state-changing functions. Run `yarn docs:gen` from the repo root to refresh.",
+    "are listed before state-changing functions, with events and errors in their own collapsible.",
+    "Run `yarn docs:gen` from the repo root to refresh.",
     "",
   ];
 
@@ -199,17 +206,29 @@ async function main() {
       // `## Contract` heading → shows in the right-hand TOC (per-contract organisation) and
       // auto-slugs to #contract for cross-refs; members live inside a collapsible <details>
       // just beneath it (H4 → not in the TOC).
+      const { functions, eventsErrors } = await loadEntry(entry);
       chunks.push(
         `## ${entry.title}`,
         "",
         "<details>",
         "<summary>Functions</summary>",
         "",
-        await loadEntry(entry),
+        functions,
         "",
         "</details>",
         "",
       );
+      if (eventsErrors.trim()) {
+        chunks.push(
+          "<details>",
+          "<summary>Events & Errors</summary>",
+          "",
+          eventsErrors,
+          "",
+          "</details>",
+          "",
+        );
+      }
       count += 1;
     }
   }

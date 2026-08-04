@@ -34,7 +34,7 @@ Both sides of an option are standard ERC20s, deployed as clones per option pair 
 ### Option Token (OPT)
 
 - Minted on deposit, burned on `exercise` or pair-`burn`.
-- Transferable. Standard `approve` / `transferFrom` semantics, plus operator approvals via the factory (see below).
+- Transferable. Standard `approve` / `transferFrom` semantics, plus factory permission grants (see [Permissions](#permissions)).
 - Time-gated: `mint` reverts at/after expiry; `transfer`, `exercise`, and pair-`burn` revert after the exercise deadline. There is no oracle/settle/claim step — settlement is manual exercise (see [Settlement](./settlement)).
 
 ### Receipt Token (RCT)
@@ -81,10 +81,9 @@ Users approve the **factory** once, not each option. The factory is the single t
 ```solidity
 // One-time setup
 IERC20(collateral).approve(address(factory), type(uint256).max);
-factory.approve(collateral, type(uint256).max);
 ```
 
-The first line is a standard ERC20 approval to the factory. The second registers the allowance in the factory's internal book, which is what Receipt contracts check on mint.
+That standard ERC20 allowance to the factory is the only gate: any Receipt contract created by the factory can ask the factory to pull against it. There is no separate factory-side allowance to register.
 
 ### Minting
 
@@ -109,23 +108,30 @@ After mint, the Receipt contract holds the collateral. Its balance equals the ou
 
 - `Option.sol` — long-side entry point. `mint(amount)`, `mint(to, amount)`, `exercise`, `burn` (pair-burn), `expire` (burn expired longs after the window).
 - `Receipt.sol` — short side. Holds escrow, enforces 1:1, handles `redeem`. Only mintable/burnable by its paired Option.
-- `Factory.sol` — clone factory and single allowance registry (`approve`, `approveOperator`, `enableAutoMintBurn`, `allowExercise`, `allowRedeem`).
+- `Factory.sol` — clone factory, single transfer hub, and permission registry (`setPermissions` / `addPermissions`, one bitmask per owner and operator pair).
 
 See the [API Reference](./api) for full surface.
 
 ## Transferring and Swapping
 
-### Operator approvals
-To allow a contract to transfer/swap (`transferFrom()`) on your behalf, similar to `token.approve()`, you must permit that contract through the following approval method, that's similar to an ERC-1155-style universal approval:
+### Permissions
+
+The factory keeps a single permission bitmask per (owner, operator) pair. One grant covers every option the factory has created or ever will create, similar to an ERC-1155 universal approval, but split into per-action bits so you grant only what the operator needs:
 
 ```solidity
-// Grant operator transfer rights across ALL options created by this factory
-factory.approveOperator(operator, true);
+// Bits from library Perm:
+// TRANSFER = 1, MINT = 2, BURN = 4, REDEEM = 8, EXERCISE = 16
+factory.setPermissions(operator, mask);   // overwrite the operator's mask
+factory.addPermissions(operator, mask);   // OR new bits into the existing mask
 ```
 
-When approved, `operator` can call `option.transferFrom(owner, to, amount)` on any option created by that factory without needing individual ERC20 approvals. Used by the RFQ settlement contract and other trading venues.
+- **`TRANSFER`** — the operator can call `option.transferFrom(you, to, amount)` on any option from this factory without per-option ERC20 allowances. This is full custody of your long positions.
+- **`MINT`** — the operator can mint against your token allowance to the factory. This powers [auto-mint](#auto-mint--auto-burn) on transfer shortfalls.
+- **`BURN`** — transfers the operator initiates into you pair-burn against your matching Receipts ([auto-burn](#auto-mint--auto-burn)), and the operator can pair-burn and clean up expired longs for you.
+- **`REDEEM`** — the operator can trigger `receipt.redeemFor` on your behalf. Payout always goes to you; the operator only picks the timing.
+- **`EXERCISE`** — the operator can exercise your options, paying the strike and **receiving the collateral**. Only for a trusted keeper: this is a withdrawal right over your in-the-money value.
 
- If the sender has opted into auto-mint / auto-burn (next section), the transfer can additionally mint or burn pairs on the fly, assuming the sender has enough collateral.
+The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`) as one grant. Revoke any grant with `factory.setPermissions(operator, 0)`. Every bit is dangerous in its own way; see [Perm](./api#perm) for the full read.
 
 ## Auto-Mint & Auto-Burn
 
@@ -140,27 +146,33 @@ Greek offers **opt-in** capabilities for both:
 
 ### Opting in
 
+Both behaviours are driven by the [permission bitmask](#permissions), scoped to whoever initiates the transfer:
+
 ```solidity
-factory.enableAutoMintBurn(true);
+// Let the RFQ settlement contract mint on shortfall and burn on buy-back
+factory.addPermissions(settlement, 2 | 4);   // Perm.MINT | Perm.BURN
+
+// Or enable both for transfers you initiate yourself
+factory.addPermissions(msg.sender, 2 | 4);   // the self entry
 ```
 
-By enabling this flag for your wallet, every option in that factory can have auto-mint and auto-burn. This is disabled by default. Both directions fire based on the sender's / receiver's opt-in independently.
+Disabled by default. **Auto-mint** fires when the transfer initiator holds `MINT` in the *sender's* mask; **auto-burn** fires when the initiator holds `BURN` in the *receiver's* mask. Each side is independent.
 
 ### Auto-mint: sell-without-minting
 
 ```solidity
-// Maker hasn't minted yet, but holds collateral.
-// Maker opts in, then signs a transfer.
-factory.enableAutoMintBurn(true);
+// Maker hasn't minted yet, but holds collateral (approved to the factory).
+// Maker grants MINT to the settlement contract, then signs a quote.
+factory.addPermissions(settlement, 2);   // Perm.MINT (with TRANSFER for RFQ: mask 7)
 
-// Taker pulls options via transferFrom
+// Settlement pulls options via transferFrom
 option.transferFrom(maker, taker, 10e18);
 ```
 
 On the transfer:
 
 1. Maker's option balance is 0, requested amount is 10e18.
-2. Since maker opted in, the deficit (`10e18 - 0`) is minted — factory pulls 10e18 collateral from the maker and mints 10e18 Option + 10e18 Receipt to the maker.
+2. Since the settlement contract holds `MINT` in the maker's mask, the deficit (`10e18 - 0`) is minted — the factory pulls 10e18 collateral from the maker and mints 10e18 Option + 10e18 Receipt to the maker.
 3. Then the standard transfer moves the 10e18 Option tokens to the taker.
 
 Net: maker holds 10 Receipt, taker holds 10 Option, collateral is locked in the Receipt contract. Same outcome as `mint` + `transfer`, one tx.
@@ -168,23 +180,23 @@ Net: maker holds 10 Receipt, taker holds 10 Option, collateral is locked in the 
 ### Auto-burn: unwind-on-receive
 
 ```solidity
-// Taker holds 10 Option + 10 Receipt (e.g. from a pair position).
-// Taker opts in.
-factory.enableAutoMintBurn(true);
+// Writer holds 10 Receipt (short from an earlier sale) and grants BURN
+// to the settlement contract.
+factory.addPermissions(settlement, 4);   // Perm.BURN
 
-// Any further Option arriving at taker pair-burns matched amounts.
-IERC20(option).transfer(taker, 3e18);
+// Buying options back: settlement delivers 3e18 Option to the writer.
+option.transferFrom(taker, writer, 3e18);
 ```
 
 On receive:
 
-1. Taker's Receipt balance is 10e18, incoming 3e18.
-2. Since taker opted in, `min(3e18, 10e18) = 3e18` pairs are burned.
-3. 3e18 collateral is released back to taker.
+1. Writer's Receipt balance is 10e18, incoming 3e18.
+2. Since the initiator holds `BURN` in the writer's mask, `min(3e18, 10e18) = 3e18` pairs are burned.
+3. 3e18 collateral is released back to the writer.
 
 ### When it fires
 
-Both transfer entry points apply auto-settling: `transfer(to, amount)` and `transferFrom(from, to, amount)`. Auto-mint checks the **sender's** opt-in flag; auto-burn checks the **receiver's**. Each side is independent.
+Both transfer entry points apply auto-settling: `transfer(to, amount)` and `transferFrom(from, to, amount)`. Auto-mint reads the initiator's bit in the **sender's** mask; auto-burn reads it in the **receiver's** mask. The self entry covers the cases where you are that initiator: sending your own tokens (auto-mint), or pulling options into your own wallet via `transferFrom` (auto-burn). Inbound transfers initiated by someone else consult *their* grant, not your self entry.
 
 ### Why this matters
 
@@ -215,7 +227,6 @@ An **American** option can be exercised on-chain at any time up to and including
 ```solidity
 // One-time setup
 IERC20(consideration).approve(address(factory), type(uint256).max);
-factory.approve(consideration, type(uint256).max);
 ```
 
 

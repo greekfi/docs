@@ -6,7 +6,7 @@ sidebar_position: 0
 
 # Greek
 
-Greek is an options infrastructure on EVM (live on Ethereum, Base, Arbitrum, and Ink). It provides the capability to produce and trade unique, universal ERC20 option tokens for any underlying collateral (and [consideration](./fundamentals#consideration)), expiration date and strike price.
+Greek is an options infrastructure on EVM (live on Ethereum, Optimism, Base, Arbitrum, HyperEVM, Hemi, Robinhood, and Hedera). It provides the capability to produce and trade unique, universal ERC20 option tokens for any underlying collateral (and [consideration](./fundamentals#consideration)), expiration date and strike price.
 
 Greek has partnered with [Bebop](https://bebop.xyz) to provide [options trades](./trading) through their RFQ system, settling as plain ERC20 transfers on-chain.
 
@@ -36,15 +36,19 @@ and serves as the shared approval hub.
 
 | Network            | Chain ID | Factory |
 |--------------------|---------:|---------|
-| Ethereum (Mainnet) | 1        | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
-| Optimism           | 10       | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
-| Base               | 8453     | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
-| Arbitrum           | 42161    | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
-| Ink                | 57073    | `0x0000000000008aF0c21B3099857341B3E2D41E39` |
+| Ethereum (Mainnet) | 1        | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| Optimism           | 10       | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| HyperEVM           | 999      | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| Robinhood          | 4663     | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| Base               | 8453     | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| Arbitrum           | 42161    | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| Hemi               | 43111    | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| Hedera             | 295      | `0x20677001aFbAa8F28baebEa0b10bF96490Eb45ab` |
 
-:::info
-Unichain (130) and HyperEVM (999) are registered in the frontend; factory deployments
-there are pending. Always confirm the current address against the app before interacting.
+:::warning Legacy factory
+An earlier factory at `0x0000000000008aF0c21B3099857341B3E2D41E39` remains deployed on
+Ethereum, Optimism, Arbitrum, Base, and Robinhood. It uses the old permission API and is
+superseded by the addresses above — always confirm against the app before interacting.
 :::
 
 ### Programmatic discovery
@@ -56,7 +60,7 @@ event OptionCreated(
     address indexed collateral,
     address indexed consideration,
     uint40 expirationDate,
-    uint96 strike,
+    uint256 strike,
     bool isPut,
     bool isEuro,
     uint40 windowSeconds,
