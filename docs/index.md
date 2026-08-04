@@ -143,7 +143,6 @@ Every grant covers every option this factory has created or ever will create; th
 
 - Gates `Option.mint(account, amount)` and the auto-mint leg of transfers (which reads the *sender's* mask).
 - The grantee can convert your entire factory collateral allowance into positions, in any market, at any strike: `token.approve(factory, X)` plus a `MINT` grant to A is functionally `token.approve(A, X)`. The minted Option + Receipt land in your account, not theirs, but paired with an ordinary ERC20 allowance on an option token the grantee can transfer more than you hold, auto-mint the deficit, and leave you a naked short.
-- On your own address, `MINT` switches on auto-mint for transfers you initiate: an oversize transfer no longer reverts with insufficient balance, it pulls collateral and opens a short for the difference.
 
 **`BURN` (4)**; safe on the value axis, timing is the grantee's.
 
@@ -182,7 +181,6 @@ If all you ever do is `token.approve(factory, X)`, no third party can move anyth
 - **`EXERCISE` to the wrong party.** The grantee can exercise your in-the-money options at any time: they pay the strike, they receive the collateral, and you get nothing on-chain. Grant it only to a keeper that provably settles your share back to you.
 - **`MINT` to the wrong party.** `token.approve(factory, X)` plus a `MINT` grant equals `token.approve(grantee, X)`: the grantee can open shorts against your entire factory allowance, in any market, at any strike. Combined with an ordinary ERC20 allowance on the option token, they can also transfer more options than you hold and leave you with a naked short.
 - **`TRANSFER` to the wrong party.** Full custody of your long positions: the grantee can move your options to itself and exercise them as its own. This is not weaker than `EXERCISE`; it reaches the same value in two steps.
-- **`MINT` on your own address.** `setPermissions(you, MINT)` removes the ERC20 safety net: a transfer larger than your balance no longer reverts, it silently pulls collateral and opens a short for the difference. A typo becomes a position.
 - **Mask `7` to an address that isn't really the settlement contract.** The grant is only as safe as the address. Verify you are granting to Bebop's actual settlement contract, exactly as you would verify a router before an unlimited approve.
 
 #### Looks Dangerous, Isn't
