@@ -128,7 +128,11 @@ function renderMembers(md, drop = []) {
     const fn = sig.match(/\bfunction\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
     const headingLine = fn ? `### ${fn[1]}(${fn[2].trim()})` : `### ${heading}`;
     // Member layout: heading → declaration → compact param bullets → description.
-    const body = [decl[0], tablesToBullets(tail), desc.trim()].filter(Boolean).join("\n\n");
+    // When the NatSpec has no @param/@return tags, synthesize bullets from the signature
+    // so every function still lists its inputs and outputs.
+    let bullets = tablesToBullets(tail);
+    if (fn && !/^- /m.test(bullets)) bullets = bulletsFromSig(fn[2], sig);
+    const body = [decl[0], bullets, desc.trim()].filter(Boolean).join("\n\n");
     const text = `${headingLine}\n\n${body}`;
     let rank;
     if (/\bevent\b/.test(sig)) rank = 2;
@@ -143,6 +147,21 @@ function renderMembers(md, drop = []) {
     functions: render(members.filter((m) => m.rank <= 1)),
     eventsErrors: render(members.filter((m) => m.rank >= 2)),
   };
+}
+
+// Fallback for functions whose NatSpec carries no @param/@return tags: derive the
+// bullets (name + type only) from the declaration's argument list and returns clause.
+function bulletsFromSig(argList, sig) {
+  const out = [];
+  for (const arg of argList.split(",").map((a) => a.trim()).filter(Boolean)) {
+    const parts = arg.split(/\s+/).filter((w) => !["memory", "calldata", "storage", "payable"].includes(w));
+    const name = parts.length > 1 ? parts[parts.length - 1] : "";
+    const type = parts.slice(0, name ? -1 : undefined).join(" ");
+    out.push(name ? `- \`${name}\` \`${type}\`` : `- \`${type}\``);
+  }
+  const ret = sig.match(/\breturns\s*\(([^)]*)\)/);
+  if (ret) out.push(`- Returns \`${ret[1].trim()}\``);
+  return out.join("\n");
 }
 
 // forge doc renders parameters and returns as three-column tables; a bullet a line

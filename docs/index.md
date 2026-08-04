@@ -132,18 +132,18 @@ The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`). Revoke wit
 
 The `MINT` and `BURN` bits of the [permission grant](#permissions) mint and unwind inside the transfer itself — the Setup grant (mask `7`) already switches them on.
 
-**Selling without minting** — the maker holds collateral but no options:
+**Selling without minting** — the writer holds collateral but no options:
 
 ```solidity
-option.transferFrom(maker, taker, 10e18);
+option.transferFrom(writer, holder, 10e18);
 ```
 
-The maker's balance is 0, so the factory pulls 10e18 collateral, mints 10e18 Option + Receipt, and the transfer delivers the Options to the taker. The maker ends up short 10 Receipt.
+The writer's balance is 0, so the factory pulls 10e18 collateral, mints 10e18 Option + Receipt, and the transfer delivers the Options to the holder. The writer ends up short 10 Receipt.
 
 **Unwinding on receive** — a writer short 10 Receipt buys 3 options back:
 
 ```solidity
-option.transferFrom(taker, writer, 3e18);
+option.transferFrom(holder, writer, 3e18);
 ```
 
 The incoming 3e18 Option meets the writer's Receipts, 3e18 pairs burn, and 3e18 collateral returns to the writer.
@@ -253,6 +253,8 @@ settlement math. Doubles as the [init](#option) guard — non-zero means initial
 function factory() public view returns (address);
 ```
 
+- Returns `address`
+
 Address of the `Factory` that created this option.
 
 The one getter in this block that is NOT a `Receipt` passthrough: it returns this
@@ -267,6 +269,8 @@ below forwards to the paired Receipt, where the per-option terms actually live.
 function collateral() public view returns (address);
 ```
 
+- Returns `address`
+
 Underlying collateral token (e.g. WETH for a WETH/USDC call).
 
 ---
@@ -276,6 +280,8 @@ Underlying collateral token (e.g. WETH for a WETH/USDC call).
 ```solidity
 function consideration() public view returns (address);
 ```
+
+- Returns `address`
 
 Consideration / quote token (e.g. USDC for a WETH/USDC call).
 
@@ -287,6 +293,8 @@ Consideration / quote token (e.g. USDC for a WETH/USDC call).
 function expirationDate() public view returns (uint40);
 ```
 
+- Returns `uint40`
+
 Unix timestamp at which the option expires.
 
 ---
@@ -297,6 +305,8 @@ Unix timestamp at which the option expires.
 function exerciseDeadline() public view returns (uint64);
 ```
 
+- Returns `uint64`
+
 Unix timestamp at which the post-expiry exercise window closes.
 
 ---
@@ -306,6 +316,8 @@ Unix timestamp at which the post-expiry exercise window closes.
 ```solidity
 function strike() public view returns (uint256);
 ```
+
+- Returns `uint256`
 
 Strike price in 18-decimal fixed point, encoded as "consideration per collateral".
 
@@ -319,6 +331,8 @@ For puts, this stores the *inverse* of the human-readable strike (see [name](#op
 function isPut() public view returns (bool);
 ```
 
+- Returns `bool`
+
 `true` if this is a put option; `false` for calls.
 
 ---
@@ -328,6 +342,8 @@ function isPut() public view returns (bool);
 ```solidity
 function isEuro() public view returns (bool);
 ```
+
+- Returns `bool`
 
 `true` for European-style options (exercise barred before `expirationDate`; only the
 post-expiry window is exercisable). `false` for American, which is exercisable at any
@@ -340,6 +356,8 @@ time up to and including `exerciseDeadline`.
 ```solidity
 function decimals() public view override returns (uint8);
 ```
+
+- Returns `uint8`
 
 Option token shares the collateral's decimals so 1 option token ↔ 1 collateral unit.
 
@@ -355,6 +373,8 @@ ERC-20.
 function name() public view override returns (string memory);
 ```
 
+- Returns `string memory`
+
 Human-readable token name in the form `OPT[E/A]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
 The `OPTE-` prefix flags European options, `OPTA-` flags American options, and the
 date is the UTC day of `expirationDate`, not of `exerciseDeadline`.
@@ -369,6 +389,8 @@ guarded on `strike() > 0` so a zero strike renders as `0` rather than dividing b
 ```solidity
 function symbol() public view override returns (string memory);
 ```
+
+- Returns `string memory`
 
 Same as [name](#option). Matching name/symbol keeps wallets and explorers in sync.
 
@@ -440,6 +462,10 @@ collateral). It is NOT implied by `Perm.TRANSFER` or any other bit.
 function transfer(address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
 ```
 
+- `to` `address`
+- `amount` `uint256`
+- Returns `bool`
+
 Overridden to run the auto-mint / auto-burn hook, so this is NOT a plain ERC-20
 transfer: it may mint against the caller's collateral or net options out at the
 receiver, and it always returns `true` or reverts. Reverts `ExerciseWindowClosed` once
@@ -453,6 +479,11 @@ window so holders can still sell to keepers. See [_settledTransfer](#option) for
 ```solidity
 function transferFrom(address from, address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
 ```
+
+- `from` `address`
+- `to` `address`
+- `amount` `uint256`
+- Returns `bool`
 
 Skips `_spendAllowance` when [notAuthorized](#option) says it may — i.e. when `msg.sender` is
 `from` itself, or holds `Perm.TRANSFER` in `from`'s factory permission mask (a blanket
@@ -828,6 +859,8 @@ Denominated in receipt/collateral units (the cons equivalent is `toConsideration
 function strike() public pure returns (uint256);
 ```
 
+- Returns `uint256`
+
 Strike price, 18-decimal fixed point (consideration per collateral; inverted for puts).
 
 ---
@@ -837,6 +870,8 @@ Strike price, 18-decimal fixed point (consideration per collateral; inverted for
 ```solidity
 function collateral() public pure returns (IERC20);
 ```
+
+- Returns `IERC20`
 
 Underlying collateral token (e.g. WETH). All collateral sits here.
 
@@ -848,6 +883,8 @@ Underlying collateral token (e.g. WETH). All collateral sits here.
 function consideration() public pure returns (IERC20);
 ```
 
+- Returns `IERC20`
+
 Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
 
 ---
@@ -858,6 +895,8 @@ Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
 function option() public pure returns (address);
 ```
 
+- Returns `address`
+
 The paired `Option` contract. Only this address can call mint / burn / exercise.
 
 ---
@@ -867,6 +906,8 @@ The paired `Option` contract. Only this address can call mint / burn / exercise.
 ```solidity
 function expirationDate() public pure returns (uint40);
 ```
+
+- Returns `uint40`
 
 Unix timestamp at which the option expires and the post-expiry exercise window opens.
 
@@ -880,6 +921,8 @@ European option both exercise and the consideration leg of [redeem](#receipt) op
 ```solidity
 function exerciseDeadline() public pure returns (uint64);
 ```
+
+- Returns `uint64`
 
 Unix timestamp at which the post-expiry exercise window closes.
 
@@ -895,6 +938,8 @@ so reading the full 64-bit slot avoids silently truncating the deadline.
 function isPut() public pure returns (bool);
 ```
 
+- Returns `bool`
+
 `true` if put, `false` if call.
 
 ---
@@ -904,6 +949,8 @@ function isPut() public pure returns (bool);
 ```solidity
 function isEuro() public pure returns (bool);
 ```
+
+- Returns `bool`
 
 `true` if European-style.
 
@@ -915,6 +962,8 @@ function isEuro() public pure returns (bool);
 function decimals() public pure override returns (uint8);
 ```
 
+- Returns `uint8`
+
 This Receipt's own ERC-20 decimals: the cached `collateral.decimals()`, so one receipt
 unit is exactly one collateral unit. Also the collateral side of the conversion scaling.
 
@@ -925,6 +974,8 @@ unit is exactly one collateral unit. Also the collateral side of the conversion 
 ```solidity
 function consDecimals() public pure returns (uint8);
 ```
+
+- Returns `uint8`
 
 Cached `consideration.decimals()` used in conversion math.
 
@@ -954,6 +1005,9 @@ Evaluates `amount * strike * numer / (1e18 * denom)` as one `mulDiv`, so only
 function toCollateral(uint256 consAmount) public pure returns (uint256);
 ```
 
+- `consAmount` `uint256`
+- Returns `uint256`
+
 Convert a consideration amount to the matching collateral-denominated receipt count.
 
 Floors by design. No longer used internally — `_redeem` now tracks cons-backed
@@ -967,6 +1021,8 @@ indexers and invariant tests that need the inverse of [toConsideration](#receipt
 ```solidity
 function name() public view override returns (string memory);
 ```
+
+- Returns `string memory`
 
 Human-readable token name in the form `RCT[E]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
 The `RCTE-` prefix flags European options, `RCT-` American — note this differs from
@@ -982,6 +1038,8 @@ For puts the displayed strike is inverted back (`1e36 / strike`) to the human fo
 ```solidity
 function symbol() public view override returns (string memory);
 ```
+
+- Returns `string memory`
 
 Same as [name](#receipt). Matching name/symbol keeps wallets and explorers in sync.
 
