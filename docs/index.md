@@ -281,17 +281,20 @@ The long side. Mint, transfer, exercise, and pair-burn.
 
 ##### receipt
 
-Paired short-side ERC20 (collateral receipt) that holds the collateral and handles
-settlement math. Doubles as the [init](#option) guard — non-zero means initialised.
-
 ```solidity
 Receipt public receipt
 ```
 
+Paired short-side ERC20 (collateral receipt) that holds the collateral and handles
+settlement math. Doubles as the [init](#option) guard — non-zero means initialised.
 
+---
 
 ##### factory()
 
+```solidity
+function factory() public view returns (address);
+```
 
 Address of the `Factory` that created this option.
 
@@ -299,87 +302,87 @@ The one getter in this block that is NOT a `Receipt` passthrough: it returns thi
 contract's own `FACTORY` immutable and never touches the Receipt. Every other view
 below forwards to the paired Receipt, where the per-option terms actually live.
 
-```solidity
-function factory() public view returns (address);
-```
-
+---
 
 ##### collateral()
-
-
-Underlying collateral token (e.g. WETH for a WETH/USDC call).
 
 ```solidity
 function collateral() public view returns (address);
 ```
 
+Underlying collateral token (e.g. WETH for a WETH/USDC call).
+
+---
 
 ##### consideration()
-
-
-Consideration / quote token (e.g. USDC for a WETH/USDC call).
 
 ```solidity
 function consideration() public view returns (address);
 ```
 
+Consideration / quote token (e.g. USDC for a WETH/USDC call).
+
+---
 
 ##### expirationDate()
-
-
-Unix timestamp at which the option expires.
 
 ```solidity
 function expirationDate() public view returns (uint40);
 ```
 
+Unix timestamp at which the option expires.
+
+---
 
 ##### exerciseDeadline()
-
-
-Unix timestamp at which the post-expiry exercise window closes.
 
 ```solidity
 function exerciseDeadline() public view returns (uint64);
 ```
 
+Unix timestamp at which the post-expiry exercise window closes.
+
+---
 
 ##### strike()
-
-
-Strike price in 18-decimal fixed point, encoded as "consideration per collateral".
-
-For puts, this stores the *inverse* of the human-readable strike (see [name](#option) for display).
 
 ```solidity
 function strike() public view returns (uint256);
 ```
 
+Strike price in 18-decimal fixed point, encoded as "consideration per collateral".
+
+For puts, this stores the *inverse* of the human-readable strike (see [name](#option) for display).
+
+---
 
 ##### isPut()
-
-
-`true` if this is a put option; `false` for calls.
 
 ```solidity
 function isPut() public view returns (bool);
 ```
 
+`true` if this is a put option; `false` for calls.
+
+---
 
 ##### isEuro()
-
-
-`true` for European-style options (exercise barred before `expirationDate`; only the
-post-expiry window is exercisable). `false` for American, which is exercisable at any
-time up to and including `exerciseDeadline`.
 
 ```solidity
 function isEuro() public view returns (bool);
 ```
 
+`true` for European-style options (exercise barred before `expirationDate`; only the
+post-expiry window is exercisable). `false` for American, which is exercisable at any
+time up to and including `exerciseDeadline`.
+
+---
 
 ##### decimals()
 
+```solidity
+function decimals() public view override returns (uint8);
+```
 
 Option token shares the collateral's decimals so 1 option token ↔ 1 collateral unit.
 
@@ -387,13 +390,13 @@ Read live from the collateral token on every call, not from the Receipt's cached
 `decimals` immutable arg. The two agree for any supported (non-rebasing, standard)
 ERC-20.
 
-```solidity
-function decimals() public view override returns (uint8);
-```
-
+---
 
 ##### name()
 
+```solidity
+function name() public view override returns (string memory);
+```
 
 Human-readable token name in the form `OPT[E/A]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
 The `OPTE-` prefix flags European options, `OPTA-` flags American options, and the
@@ -402,80 +405,66 @@ date is the UTC day of `expirationDate`, not of `exerciseDeadline`.
 For puts the displayed strike is inverted back (`1e36 / strike`) to the human form,
 guarded on `strike() > 0` so a zero strike renders as `0` rather than dividing by zero.
 
-```solidity
-function name() public view override returns (string memory);
-```
-
+---
 
 ##### symbol()
-
-
-Same as [name](#option). Matching name/symbol keeps wallets and explorers in sync.
 
 ```solidity
 function symbol() public view override returns (string memory);
 ```
 
+Same as [name](#option). Matching name/symbol keeps wallets and explorers in sync.
+
+---
 
 ##### balancesOf(address account)
-
-
-All four balances that matter for this option in one call.
 
 ```solidity
 function balancesOf(address account) public view returns (Balances memory);
 ```
 
-**Parameters**
+- `account` `address`: Address to query.
+- Returns `Balances`: A `Balances` struct: collateral token, consideration token, long option, short receipt.
 
-|Name|Type|Description|
-|----|----|-----------|
-|`account`|`address`|Address to query.|
+All four balances that matter for this option in one call.
 
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`Balances`|A `Balances` struct: collateral token, consideration token, long option, short receipt.|
-
+---
 
 ##### details()
-
-
-Full option descriptor — addresses, token metadata, strike, expiry, deadline.
-Convenient one-shot read for frontends.
 
 ```solidity
 function details() public view returns (OptionInfo memory);
 ```
 
-**Returns**
+- Returns `OptionInfo`: An `OptionInfo` struct. Every field is sourced from the paired `Receipt`, so the `strike` returned is the raw 18-decimal value, still inverted for puts.
 
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`OptionInfo`|An `OptionInfo` struct. Every field is sourced from the paired `Receipt`, so the `strike` returned is the raw 18-decimal value, still inverted for puts.|
+Full option descriptor — addresses, token metadata, strike, expiry, deadline.
+Convenient one-shot read for frontends.
 
+---
 
 ##### mint(uint256 amount)
-
-
-Mint `amount` option tokens to the caller, collateralised 1:1 with the underlying.
-The caller receives the matching `Receipt` too, and pays the collateral out of their
-ERC-20 allowance to the `Factory`. Barred from `expirationDate` onwards ([notExpired](#option)).
 
 ```solidity
 function mint(uint256 amount) public nonReentrant;
 ```
 
-**Parameters**
+- `amount` `uint256`: Collateral-denominated mint amount, in collateral decimals.
 
-|Name|Type|Description|
-|----|----|-----------|
-|`amount`|`uint256`|Collateral-denominated mint amount, in collateral decimals.|
+Mint `amount` option tokens to the caller, collateralised 1:1 with the underlying.
+The caller receives the matching `Receipt` too, and pays the collateral out of their
+ERC-20 allowance to the `Factory`. Barred from `expirationDate` onwards ([notExpired](#option)).
 
+---
 
 ##### mint(address account, uint256 amount)
 
+```solidity
+function mint(address account, uint256 amount) public nonReentrant;
+```
+
+- `account` `address`: Recipient of both `Option` and `Receipt` tokens. Pays the collateral.
+- `amount` `uint256`: Collateral-denominated mint amount.
 
 Mint `amount` option tokens to `account`. Collateral is pulled from `account` via
 the factory's centralised allowance, so the caller must be `account` itself or hold
@@ -486,20 +475,13 @@ a non-zero factory allowance could be force-minted into unwanted positions.
 holder's factory collateral allowance into new positions (functionally a permit on
 collateral). It is NOT implied by `Perm.TRANSFER` or any other bit.
 
-```solidity
-function mint(address account, uint256 amount) public nonReentrant;
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`account`|`address`|Recipient of both `Option` and `Receipt` tokens. Pays the collateral.|
-|`amount`|`uint256`| Collateral-denominated mint amount.|
-
+---
 
 ##### transfer(address to, uint256 amount)
 
+```solidity
+function transfer(address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
+```
 
 Overridden to run the auto-mint / auto-burn hook, so this is NOT a plain ERC-20
 transfer: it may mint against the caller's collateral or net options out at the
@@ -507,13 +489,13 @@ receiver, and it always returns `true` or reverts. Reverts `ExerciseWindowClosed
 `block.timestamp > exerciseDeadline` — the long token keeps circulating through the
 window so holders can still sell to keepers. See [_settledTransfer](#option) for the two legs.
 
-```solidity
-function transfer(address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
-```
-
+---
 
 ##### transferFrom(address from, address to, uint256 amount)
 
+```solidity
+function transferFrom(address from, address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
+```
 
 Skips `_spendAllowance` when [notAuthorized](#option) says it may — i.e. when `msg.sender` is
 `from` itself, or holds `Perm.TRANSFER` in `from`'s factory permission mask (a blanket
@@ -524,13 +506,13 @@ Note the asymmetry with the hook: `Perm.TRANSFER` decides who may move the token
 while the hook's two legs key on `Perm.MINT` in `from`'s row and `Perm.BURN` in `to`'s
 row. Holding TRANSFER alone reaches neither leg.
 
-```solidity
-function transferFrom(address from, address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
-```
-
+---
 
 ##### exercise()
 
+```solidity
+function exercise() public;
+```
 
 Exercise the caller's entire Option balance: pay consideration, receive collateral.
 
@@ -540,13 +522,15 @@ asymmetry). Reverts `ZeroValue` when the caller holds nothing; the balance is re
 call time, so this exercises everything held including options received earlier in
 the same transaction.
 
-```solidity
-function exercise() public;
-```
-
+---
 
 ##### exercise(uint256 amount)
 
+```solidity
+function exercise(uint256 amount) public;
+```
+
+- `amount` `uint256`: Collateral units to receive. Consideration paid = `ceil(amount * strike)`, pulled from the caller's ERC-20 allowance to the `Factory`.
 
 Exercise `amount` of the caller's own options: pay consideration, receive collateral.
 
@@ -554,19 +538,17 @@ Self-exercise — the safe path. Delegates to `exerciseFor(address,uint256)` wit
 `holder = msg.sender`, so msg.sender pays AND msg.sender receives (no dangerous
 asymmetry).
 
-```solidity
-function exercise(uint256 amount) public;
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`amount`|`uint256`|Collateral units to receive. Consideration paid = `ceil(amount * strike)`, pulled from the caller's ERC-20 allowance to the `Factory`.|
-
+---
 
 ##### exerciseFor(address holder, uint256 amount)
 
+```solidity
+function exerciseFor(address holder, uint256 amount) public canExercise nonReentrant nonZero(amount) returns (uint256);
+```
+
+- `holder` `address`: Option holder whose tokens will be burned. Receives nothing on-chain.
+- `amount` `uint256`: Collateral units to exercise. Consideration collected from `msg.sender` is `ceil(amount * strike)`; `msg.sender` receives the `amount` of collateral.
+- Returns `uint256`: Collateral units exercised. Always exactly `amount` — the call reverts rather than partially filling, so the value is informational for on-chain callers.
 
 **Dangerous keeper path** — burn `amount` of `holder`'s options; `msg.sender` pays
 the consideration and receives the collateral. The holder gets nothing on-chain.
@@ -588,26 +570,16 @@ plus the post-expiry window through `exerciseDeadline` for both flavours). Rever
 `ERC20InsufficientBalance` if `holder` does not hold `amount` — this path never
 partially fills.
 
-```solidity
-function exerciseFor(address holder, uint256 amount) public canExercise nonReentrant nonZero(amount) returns (uint256);
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`holder`|`address`|Option holder whose tokens will be burned. Receives nothing on-chain.|
-|`amount`|`uint256`|Collateral units to exercise. Consideration collected from `msg.sender` is `ceil(amount * strike)`; `msg.sender` receives the `amount` of collateral.|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`uint256`|Collateral units exercised. Always exactly `amount` — the call reverts rather than partially filling, so the value is informational for on-chain callers.|
-
+---
 
 ##### exerciseFor(address[] calldata holders, uint256[] calldata amounts)
 
+```solidity
+function exerciseFor(address[] calldata holders, uint256[] calldata amounts) external canExercise nonReentrant;
+```
+
+- `holders` `address[]`: Option holders whose options will be exercised.
+- `amounts` `uint256[]`: Per-holder collateral amounts to exercise; must align 1:1 with `holders` (unequal lengths revert `InvalidValue`).
 
 Batch variant of `exerciseFor(address,uint256)`. Same dangerous semantics — the
 caller pays consideration and receives collateral for every holder. Exercises
@@ -627,20 +599,15 @@ balance check against the balance remaining after the earlier ones.
 Unlike `exerciseFor(address,uint256)` this returns nothing, so on-chain callers
 cannot tell which entries were skipped; read the balances back or watch the events.
 
-```solidity
-function exerciseFor(address[] calldata holders, uint256[] calldata amounts) external canExercise nonReentrant;
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`holders`|`address[]`|Option holders whose options will be exercised.|
-|`amounts`|`uint256[]`|Per-holder collateral amounts to exercise; must align 1:1 with `holders` (unequal lengths revert `InvalidValue`).|
-
+---
 
 ##### burn(uint256 amount)
 
+```solidity
+function burn(uint256 amount) public;
+```
+
+- `amount` `uint256`: Collateral-denominated amount to burn from each side.
 
 Burn matched `Option` + `Receipt` pairs to recover the underlying collateral.
 
@@ -653,19 +620,16 @@ through `Receipt.redeem` / `Receipt.redeemFor`. The caller must hold at least
 `amount` of BOTH sides — the long burn happens first, so a caller holding only the
 short side reverts `ERC20InsufficientBalance` on the option token.
 
-```solidity
-function burn(uint256 amount) public;
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`amount`|`uint256`|Collateral-denominated amount to burn from each side.|
-
+---
 
 ##### burn(address account, uint256 amount)
 
+```solidity
+function burn(address account, uint256 amount) public nonReentrant nonZero(amount) beforeDeadline;
+```
+
+- `account` `address`: Holder of the matched Option + Receipt pair, and recipient of the collateral.
+- `amount` `uint256`: Collateral-denominated amount to burn from each side.
 
 Burn `amount` matched `Option` + `Receipt` pairs held by `account`, returning the
 underlying collateral to `account`.
@@ -679,20 +643,16 @@ matched position but not extract value from it. It can still choose the *moment*
 and note that the auto-burn leg of [_settledTransfer](#option) gives a BURN grantee a reach
 this function does not have, because there the operator supplies the longs. See `Perm`.
 
-```solidity
-function burn(address account, uint256 amount) public nonReentrant nonZero(amount) beforeDeadline;
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`account`|`address`|Holder of the matched Option + Receipt pair, and recipient of the collateral.|
-|`amount`|`uint256`| Collateral-denominated amount to burn from each side.|
-
+---
 
 ##### expire(address holder, uint256 amount)
 
+```solidity
+function expire(address holder, uint256 amount) public nonReentrant nonZero(amount);
+```
+
+- `holder` `address`: Address of the long option holder.
+- `amount` `uint256`: Amount of long option tokens to burn. Must not exceed the holder's balance.
 
 Burn expired long option tokens to clean up dust.
 
@@ -711,20 +671,6 @@ cleanup burn: the tokens are already worthless, so a keeper gains nothing here. 
 authorisation check runs BEFORE the timestamp check, so an unauthorised caller sees
 `Unauthorized` even while the option is still live.
 
-```solidity
-function expire(address holder, uint256 amount) public nonReentrant nonZero(amount);
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`holder`|`address`|Address of the long option holder.|
-|`amount`|`uint256`|Amount of long option tokens to burn. Must not exceed the holder's balance.|
-
-
-
-
 </details>
 
 <details>
@@ -732,130 +678,131 @@ function expire(address holder, uint256 amount) public nonReentrant nonZero(amou
 
 ##### Mint
 
-Emitted when new options are minted against fresh collateral — by either [mint](#option)
-overload or by the auto-mint leg of [_settledTransfer](#option), which routes through the
-same `mint_`. A matching `Receipt` is always minted to `holder` alongside.
-
 ```solidity
 event Mint(address longOption, address holder, uint256 amount);
 ```
 
+- `longOption` `address`: The Option contract (always `address(this)`).
+- `holder` `address`: The account credited with the new tokens, and the account whose collateral is pulled to back them.
+- `amount` `uint256`: Collateral-denominated amount (same decimals as the collateral token).
 
-**Parameters**
+Emitted when new options are minted against fresh collateral — by either [mint](#option)
+overload or by the auto-mint leg of [_settledTransfer](#option), which routes through the
+same `mint_`. A matching `Receipt` is always minted to `holder` alongside.
 
-|Name|Type|Description|
-|----|----|-----------|
-|`longOption`|`address`| The Option contract (always `address(this)`).|
-|`holder`|`address`|     The account credited with the new tokens, and the account whose collateral is pulled to back them.|
-|`amount`|`uint256`|     Collateral-denominated amount (same decimals as the collateral token).|
+---
 
 ##### Exercise
-
-Emitted once per exercised holder — by `exerciseFor(address,uint256)`, by the
-[exercise](#option) overloads that delegate to it, and once per processed entry of the batch
-`exerciseFor(address[],uint256[])`.
 
 ```solidity
 event Exercise(address longOption, address caller, address holder, uint256 amount);
 ```
 
+- `longOption` `address`: The Option contract (always `address(this)`).
+- `caller` `address`: The account that initiated the exercise: it pays the consideration and receives the collateral. Equal to `holder` only on the self-exercise paths.
+- `holder` `address`: The account whose options were burned. Receives nothing on-chain when `caller != holder`.
+- `amount` `uint256`: Collateral units delivered to `caller` (consideration collected from `caller` is `toConsideration(amount, true)`, ceil).
 
-**Parameters**
+Emitted once per exercised holder — by `exerciseFor(address,uint256)`, by the
+[exercise](#option) overloads that delegate to it, and once per processed entry of the batch
+`exerciseFor(address[],uint256[])`.
 
-|Name|Type|Description|
-|----|----|-----------|
-|`longOption`|`address`| The Option contract (always `address(this)`).|
-|`caller`|`address`|     The account that initiated the exercise: it pays the consideration and receives the collateral. Equal to `holder` only on the self-exercise paths.|
-|`holder`|`address`|     The account whose options were burned. Receives nothing on-chain when `caller != holder`.|
-|`amount`|`uint256`|     Collateral units delivered to `caller` (consideration collected from `caller` is `toConsideration(amount, true)`, ceil).|
+---
 
 ##### Expire
+
+```solidity
+event Expire(address longOption, address caller, address holder, uint256 amount);
+```
+
+- `longOption` `address`: The Option contract (always `address(this)`).
+- `caller` `address`: The account that called [expire](#option) — the holder themselves, or an operator holding `Perm.BURN` in the holder's factory permission mask.
+- `holder` `address`: The account whose options were burned.
+- `amount` `uint256`: Amount of options burned.
 
 Emitted **only** by an explicit [expire](#option) call — the sole site that emits this event.
 An option passing `exerciseDeadline` emits nothing on its own; expiry is a timestamp
 comparison, not a transaction. Indexers must not treat this as "the option expired",
 only as "someone burned already-worthless long tokens".
 
-```solidity
-event Expire(address longOption, address caller, address holder, uint256 amount);
-```
-
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`longOption`|`address`| The Option contract (always `address(this)`).|
-|`caller`|`address`|     The account that called [expire](#option) — the holder themselves, or an operator holding `Perm.BURN` in the holder's factory permission mask.|
-|`holder`|`address`|     The account whose options were burned.|
-|`amount`|`uint256`|     Amount of options burned.|
+---
 
 ##### ContractExpired
+
+```solidity
+error ContractExpired();
+```
 
 Thrown by [notExpired](#option) — the only minting gate — when `block.timestamp >=
 expirationDate`. Reached from both [mint](#option) overloads and from the auto-mint leg of
 [_settledTransfer](#option), so an over-balance transfer between `expirationDate` and
 `exerciseDeadline` reverts with this even though plain transfers are still open.
 
-```solidity
-error ContractExpired();
-```
-
+---
 
 ##### ZeroValue
+
+```solidity
+error ZeroValue();
+```
 
 Thrown by [nonZero](#option) when `amount == 0` — it guards `mint_` (so both [mint](#option)
 overloads), `exerciseFor(address,uint256)`, `burn(address,uint256)` and [expire](#option) —
 and by [init](#option) when `receipt_` is the zero address. The batch
 `exerciseFor(address[],uint256[])` skips zero entries instead of reverting.
 
-```solidity
-error ZeroValue();
-```
-
+---
 
 ##### InvalidValue
-
-Thrown when batch `exerciseFor(address[],uint256[])` is given `holders`/`amounts`
-arrays of unequal length. Not used anywhere else.
 
 ```solidity
 error InvalidValue();
 ```
 
+Thrown when batch `exerciseFor(address[],uint256[])` is given `holders`/`amounts`
+arrays of unequal length. Not used anywhere else.
+
+---
 
 ##### ExerciseWindowClosed
-
-Thrown once `block.timestamp > exerciseDeadline`, by every path that stays open
-through the window: the exercise paths via [canExercise](#option), and [transfer](#option),
-[transferFrom](#option) and `burn(address,uint256)` via [beforeDeadline](#option).
 
 ```solidity
 error ExerciseWindowClosed();
 ```
 
+Thrown once `block.timestamp > exerciseDeadline`, by every path that stays open
+through the window: the exercise paths via [canExercise](#option), and [transfer](#option),
+[transferFrom](#option) and `burn(address,uint256)` via [beforeDeadline](#option).
+
+---
 
 ##### InvalidExercise
-
-Thrown by [canExercise](#option) when exercise is attempted on a European option before
-`expirationDate`. American options never produce it.
 
 ```solidity
 error InvalidExercise();
 ```
 
+Thrown by [canExercise](#option) when exercise is attempted on a European option before
+`expirationDate`. American options never produce it.
+
+---
 
 ##### AlreadyInitialized
-
-Thrown when [init](#option) is called on a clone that has already been initialised, or on
-the template (whose `receipt` is set to a sentinel by the constructor).
 
 ```solidity
 error AlreadyInitialized();
 ```
 
+Thrown when [init](#option) is called on a clone that has already been initialised, or on
+the template (whose `receipt` is set to a sentinel by the constructor).
+
+---
 
 ##### Unauthorized
+
+```solidity
+error Unauthorized();
+```
 
 Thrown whenever the caller lacks the required grant: [init](#option) called by anyone other
 than the factory, and `mint(address,uint256)`, `exerciseFor(address,uint256)`,
@@ -863,21 +810,15 @@ than the factory, and `mint(address,uint256)`, `exerciseFor(address,uint256)`,
 the position nor a holder of the matching `Perm` bit. The batch
 `exerciseFor(address[],uint256[])` skips such entries instead of reverting.
 
-```solidity
-error Unauthorized();
-```
-
+---
 
 ##### NotYetExpired
-
-Thrown when [expire](#option) is called on or before `exerciseDeadline` (the option is still live).
 
 ```solidity
 error NotYetExpired();
 ```
 
-
-
+Thrown when [expire](#option) is called on or before `exerciseDeadline` (the option is still live).
 
 </details>
 
@@ -890,27 +831,31 @@ The short side. Escrows the collateral; redeem after the window.
 
 ##### factory
 
-Factory that created this option, used to pull tokens against their ERC-20
-allowance to the factory. Set in the template constructor (= the factory that
-deployed it) and inherited by every clone via the template's runtime bytecode.
-
 ```solidity
 IFactory public immutable factory
 ```
 
+Factory that created this option, used to pull tokens against their ERC-20
+allowance to the factory. Set in the template constructor (= the factory that
+deployed it) and inherited by every clone via the template's runtime bytecode.
 
+---
 
 ##### STRIKEDEC
-
-Decimal basis of the strike — fixed at 18 and independent of token decimals.
 
 ```solidity
 uint8 public constant STRIKEDEC = 18
 ```
 
+Decimal basis of the strike — fixed at 18 and independent of token decimals.
 
+---
 
 ##### consBacked
+
+```solidity
+uint256 public consBacked
+```
 
 Receipt-units the consideration pool can still back at strike rate. Incremented on
 [exercise](#receipt) (cons inflow) and decremented by the cons leg of [_redeem](#receipt) (cons payout);
@@ -918,67 +863,66 @@ the collateral leg of redeem leaves it untouched. Equal to (total exercised − 
 cons-redeemed), and never underflows — the cons leg caps its payout at this value.
 Denominated in receipt/collateral units (the cons equivalent is `toConsideration`).
 
-```solidity
-uint256 public consBacked
-```
-
-
+---
 
 ##### strike()
-
-
-Strike price, 18-decimal fixed point (consideration per collateral; inverted for puts).
 
 ```solidity
 function strike() public pure returns (uint256);
 ```
 
+Strike price, 18-decimal fixed point (consideration per collateral; inverted for puts).
+
+---
 
 ##### collateral()
-
-
-Underlying collateral token (e.g. WETH). All collateral sits here.
 
 ```solidity
 function collateral() public pure returns (IERC20);
 ```
 
+Underlying collateral token (e.g. WETH). All collateral sits here.
+
+---
 
 ##### consideration()
-
-
-Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
 
 ```solidity
 function consideration() public pure returns (IERC20);
 ```
 
+Consideration / quote token (e.g. USDC). Accrues here from exercise payments.
+
+---
 
 ##### option()
-
-
-The paired `Option` contract. Only this address can call mint / burn / exercise.
 
 ```solidity
 function option() public pure returns (address);
 ```
 
+The paired `Option` contract. Only this address can call mint / burn / exercise.
+
+---
 
 ##### expirationDate()
 
+```solidity
+function expirationDate() public pure returns (uint40);
+```
 
 Unix timestamp at which the option expires and the post-expiry exercise window opens.
 
 Minting stops strictly before this instant (`Option.mint_`'s `notExpired`), and for a
 European option both exercise and the consideration leg of [redeem](#receipt) open at it.
 
-```solidity
-function expirationDate() public pure returns (uint40);
-```
-
+---
 
 ##### exerciseDeadline()
 
+```solidity
+function exerciseDeadline() public pure returns (uint64);
+```
 
 Unix timestamp at which the post-expiry exercise window closes.
 
@@ -986,54 +930,58 @@ Returned as `uint64`: the stored value is `expirationDate + windowSeconds`,
 and that sum can exceed `type(uint40).max` even though each operand is uint40,
 so reading the full 64-bit slot avoids silently truncating the deadline.
 
-```solidity
-function exerciseDeadline() public pure returns (uint64);
-```
-
+---
 
 ##### isPut()
-
-
-`true` if put, `false` if call.
 
 ```solidity
 function isPut() public pure returns (bool);
 ```
 
+`true` if put, `false` if call.
+
+---
 
 ##### isEuro()
-
-
-`true` if European-style.
 
 ```solidity
 function isEuro() public pure returns (bool);
 ```
 
+`true` if European-style.
+
+---
 
 ##### decimals()
-
-
-This Receipt's own ERC-20 decimals: the cached `collateral.decimals()`, so one receipt
-unit is exactly one collateral unit. Also the collateral side of the conversion scaling.
 
 ```solidity
 function decimals() public pure override returns (uint8);
 ```
 
+This Receipt's own ERC-20 decimals: the cached `collateral.decimals()`, so one receipt
+unit is exactly one collateral unit. Also the collateral side of the conversion scaling.
+
+---
 
 ##### consDecimals()
-
-
-Cached `consideration.decimals()` used in conversion math.
 
 ```solidity
 function consDecimals() public pure returns (uint8);
 ```
 
+Cached `consideration.decimals()` used in conversion math.
+
+---
 
 ##### toConsideration(uint256 amount, bool round)
 
+```solidity
+function toConsideration(uint256 amount, bool round) public pure returns (uint256);
+```
+
+- `amount` `uint256`: Collateral units.
+- `round` `bool`: `true` rounds UP, `false` floors. UP for collections from users ([exercise](#receipt)), DOWN for payouts to users (the consideration leg of [_redeem](#receipt)) — inverting that pairing is what would let the pool run short. See the Rounding section on the contract.
+- Returns `uint256`: Consideration units, in the consideration token's own decimals.
 
 Convert a collateral-denominated (equivalently receipt-denominated) amount into the
 consideration due for it at the strike price.
@@ -1041,26 +989,13 @@ consideration due for it at the strike price.
 Evaluates `amount * strike * numer / (1e18 * denom)` as one `mulDiv`, so only
 `strike * numer` can overflow — and `Factory` rejects at creation any strike that would.
 
-```solidity
-function toConsideration(uint256 amount, bool round) public pure returns (uint256);
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`amount`|`uint256`|Collateral units.|
-|`round`|`bool`| `true` rounds UP, `false` floors. UP for collections from users ([exercise](#receipt)), DOWN for payouts to users (the consideration leg of [_redeem](#receipt)) — inverting that pairing is what would let the pool run short. See the Rounding section on the contract.|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`uint256`|Consideration units, in the consideration token's own decimals.|
-
+---
 
 ##### toCollateral(uint256 consAmount)
 
+```solidity
+function toCollateral(uint256 consAmount) public pure returns (uint256);
+```
 
 Convert a consideration amount to the matching collateral-denominated receipt count.
 
@@ -1068,13 +1003,13 @@ Floors by design. No longer used internally — `_redeem` now tracks cons-backed
 receipt-units via the `consBacked` counter — but exposed for off-chain
 indexers and invariant tests that need the inverse of [toConsideration](#receipt).
 
-```solidity
-function toCollateral(uint256 consAmount) public pure returns (uint256);
-```
-
+---
 
 ##### name()
 
+```solidity
+function name() public view override returns (string memory);
+```
 
 Human-readable token name in the form `RCT[E]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
 The `RCTE-` prefix flags European options, `RCT-` American — note this differs from
@@ -1083,22 +1018,23 @@ The `RCTE-` prefix flags European options, `RCT-` American — note this differs
 For puts the displayed strike is inverted back (`1e36 / strike`) to the human form.
 `strike` is non-zero for every option `Factory` can create, so the division is safe.
 
-```solidity
-function name() public view override returns (string memory);
-```
-
+---
 
 ##### symbol()
-
-
-Same as [name](#receipt). Matching name/symbol keeps wallets and explorers in sync.
 
 ```solidity
 function symbol() public view override returns (string memory);
 ```
 
+Same as [name](#receipt). Matching name/symbol keeps wallets and explorers in sync.
+
+---
 
 ##### redeem()
+
+```solidity
+function redeem() public nonReentrant;
+```
 
 The queue is keyed on a current receipt balance and nothing else — receipts carry no
 mint timestamp and no assignment tag. For an American option the mint window
@@ -1124,29 +1060,28 @@ in your settled cash and empties the pool a latecomer would otherwise draw on.
 Writers who intend to manage a position rather than hold it passively should monitor
 `consBacked` and redeem when the consideration leg is the leg they want.
 
-```solidity
-function redeem() public nonReentrant;
-```
-
+---
 
 ##### redeem(uint256 amount)
-
-
-Redeem `amount` of the caller's Receipt. Same semantics as [redeem](#receipt), dust rule included.
 
 ```solidity
 function redeem(uint256 amount) public nonReentrant;
 ```
 
-**Parameters**
+- `amount` `uint256`: Receipt units to redeem. Reverts `ERC20InsufficientBalance` above the caller's balance — there is no implicit cap to it.
 
-|Name|Type|Description|
-|----|----|-----------|
-|`amount`|`uint256`|Receipt units to redeem. Reverts `ERC20InsufficientBalance` above the caller's balance — there is no implicit cap to it.|
+Redeem `amount` of the caller's Receipt. Same semantics as [redeem](#receipt), dust rule included.
 
+---
 
 ##### sweep(address token, address to)
 
+```solidity
+function sweep(address token, address to) external nonReentrant;
+```
+
+- `token` `address`: ERC20 to drain. Typically the option's collateral or consideration, but any token is accepted; a `token` this contract holds none of is a no-op (no event).
+- `to` `address`: Recipient of the swept balance. Chosen by the factory owner; must be non-zero.
 
 Sweep any residual `token` balance held by this Receipt to `to`. Callable only by
 the factory owner, and only once every receipt has been burned (`totalSupply == 0`),
@@ -1164,20 +1099,15 @@ on the `Factory` sets the owner to `address(0)`, and since no call can arrive fr
 address, every sweepable balance in every Receipt this factory ever created is stranded
 permanently. Renouncing is a decision about this function, not just about the factory.
 
-```solidity
-function sweep(address token, address to) external nonReentrant;
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`token`|`address`|ERC20 to drain. Typically the option's collateral or consideration, but any token is accepted; a `token` this contract holds none of is a no-op (no event).|
-|`to`|`address`|   Recipient of the swept balance. Chosen by the factory owner; must be non-zero.|
-
+---
 
 ##### redeemFor(address[] calldata holders)
 
+```solidity
+function redeemFor(address[] calldata holders) external nonReentrant;
+```
+
+- `holders` `address[]`: Holders whose receipts to redeem in full.
 
 Keeper-triggered batch redeem. For each holder where the caller holds `Perm.REDEEM`
 in the holder's factory permission mask (or `msg.sender == holder`), the
@@ -1216,19 +1146,6 @@ A repeated holder redeems their full balance on the first occurrence; post-windo
 later occurrences hit the zero-balance skip. Pre-window the cons leg caps at
 `consBacked` and can leave a remainder, so a repeat may still redeem again there.
 
-```solidity
-function redeemFor(address[] calldata holders) external nonReentrant;
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`holders`|`address[]`|Holders whose receipts to redeem in full.|
-
-
-
-
 </details>
 
 <details>
@@ -1236,92 +1153,100 @@ function redeemFor(address[] calldata holders) external nonReentrant;
 
 ##### Redeemed
 
-Emitted on every path that pays tokens OUT of this contract except [exercise](#receipt), whose
-collateral delivery is reported by `Option.Exercise` instead: [burn](#receipt), both legs of
-[_redeem](#receipt) (one event per leg, so a mixed redemption emits twice), and [sweep](#receipt).
-
 ```solidity
 event Redeemed(address option, address token, address holder, uint256 amount);
 ```
 
+- `option` `address`: The paired Option contract.
+- `token` `address`: The token actually transferred out. Usually `collateral` or `consideration`, but [sweep](#receipt) takes an arbitrary ERC20 and emits this event for it, so an indexer must read this field rather than assume the pair's two tokens — a swept stray token will otherwise be mis-parsed as a redemption in collateral or consideration.
+- `holder` `address`: Recipient of the payout: the redeeming/burning holder, or [sweep](#receipt)'s `to`, which is chosen by the factory owner and need not have held anything.
+- `amount` `uint256`: Token units sent, in `token`'s own decimals.
 
-**Parameters**
+Emitted on every path that pays tokens OUT of this contract except [exercise](#receipt), whose
+collateral delivery is reported by `Option.Exercise` instead: [burn](#receipt), both legs of
+[_redeem](#receipt) (one event per leg, so a mixed redemption emits twice), and [sweep](#receipt).
 
-|Name|Type|Description|
-|----|----|-----------|
-|`option`|`address`|The paired Option contract.|
-|`token`|`address`| The token actually transferred out. Usually `collateral` or `consideration`, but [sweep](#receipt) takes an arbitrary ERC20 and emits this event for it, so an indexer must read this field rather than assume the pair's two tokens — a swept stray token will otherwise be mis-parsed as a redemption in collateral or consideration.|
-|`holder`|`address`|Recipient of the payout: the redeeming/burning holder, or [sweep](#receipt)'s `to`, which is chosen by the factory owner and need not have held anything.|
-|`amount`|`uint256`|Token units sent, in `token`'s own decimals.|
+---
 
 ##### UnauthorizedCaller
-
-Thrown when a privileged path is called by anyone other than the paired `Option`.
 
 ```solidity
 error UnauthorizedCaller();
 ```
 
+Thrown when a privileged path is called by anyone other than the paired `Option`.
+
+---
 
 ##### ContractExpired
-
-Never thrown by Receipt itself — the pre-expiry mint gate is enforced by the paired
-`Option` (`notExpired` on `mint_`). Declared for ABI/tooling parity.
 
 ```solidity
 error ContractExpired();
 ```
 
+Never thrown by Receipt itself — the pre-expiry mint gate is enforced by the paired
+`Option` (`notExpired` on `mint_`). Declared for ABI/tooling parity.
+
+---
 
 ##### ZeroValue
-
-Thrown on `amount == 0` (or any derived zero-amount the invariant requires to be positive).
 
 ```solidity
 error ZeroValue();
 ```
 
+Thrown on `amount == 0` (or any derived zero-amount the invariant requires to be positive).
+
+---
 
 ##### ExerciseWindowClosed
-
-Never thrown by Receipt itself — the exercise-deadline gate is enforced by the
-paired `Option` (`canExercise` / `beforeDeadline`). Declared for ABI/tooling parity.
 
 ```solidity
 error ExerciseWindowClosed();
 ```
 
+Never thrown by Receipt itself — the exercise-deadline gate is enforced by the
+paired `Option` (`canExercise` / `beforeDeadline`). Declared for ABI/tooling parity.
+
+---
 
 ##### ExerciseWindowOpen
-
-Thrown when a post-window-only path is called before the window closes.
 
 ```solidity
 error ExerciseWindowOpen();
 ```
 
+Thrown when a post-window-only path is called before the window closes.
+
+---
 
 ##### BeforeExerciseWindow
-
-Thrown when short-side redemption is attempted on a European option before its
-exercise window opens (`block.timestamp < expirationDate`). Mirrors the long-side
-European pre-expiry guard so the revert reason states the schedule explicitly.
 
 ```solidity
 error BeforeExerciseWindow();
 ```
 
+Thrown when short-side redemption is attempted on a European option before its
+exercise window opens (`block.timestamp < expirationDate`). Mirrors the long-side
+European pre-expiry guard so the revert reason states the schedule explicitly.
+
+---
 
 ##### OutstandingReceipts
-
-Thrown when [sweep](#receipt) is called while receipts are still outstanding.
 
 ```solidity
 error OutstandingReceipts();
 ```
 
+Thrown when [sweep](#receipt) is called while receipts are still outstanding.
+
+---
 
 ##### InsufficientPool
+
+```solidity
+error InsufficientPool();
+```
 
 Thrown when the consideration or collateral pool cannot fully fund its leg of the
 requested redemption. Both branches are defensive: neither can fire for a caller
@@ -1336,13 +1261,6 @@ reverts here rather than with `ERC20InsufficientBalance`, because the pool check
 before the burn. Redeem no more than `balanceOf(you)`; splitting into smaller amounts is
 not a remedy for anything else.
 
-```solidity
-error InsufficientPool();
-```
-
-
-
-
 </details>
 
 ### Factory
@@ -1354,30 +1272,34 @@ Creates options; holds token approvals and permission grants.
 
 ##### DEFAULT_EXERCISE_WINDOW
 
-Informational suggested-default for the post-expiry exercise window. The contract
-NEVER substitutes this value — `CreateParams.windowSeconds` is taken literally.
-Exposed so frontends can read a canonical "8 hours" without hardcoding it.
-
 ```solidity
 uint40 public constant DEFAULT_EXERCISE_WINDOW = 8 hours
 ```
 
+Informational suggested-default for the post-expiry exercise window. The contract
+NEVER substitutes this value — `CreateParams.windowSeconds` is taken literally.
+Exposed so frontends can read a canonical "8 hours" without hardcoding it.
 
+---
 
 ##### receipts
+
+```solidity
+mapping(address => bool) public receipts
+```
 
 `true` if the address is a Receipt clone this factory created. Doubles as the auth
 gate for [transferFrom](#factory) — only registered Receipts can pull collateral/consideration.
 Validate an Option by reading its `receipt()` and confirming
 `factory.receipts(rec) && Receipt(rec).option() == opt`.
 
-```solidity
-mapping(address => bool) public receipts
-```
-
-
+---
 
 ##### optionFor
+
+```solidity
+mapping(bytes32 => address) public optionFor
+```
 
 Canonical Option address for a given set of economic params, keyed by [optionKey](#factory).
 `address(0)` means no option with those params exists yet. [createOption](#factory) is
@@ -1389,13 +1311,13 @@ than returning an address the caller did not mine.
 Write-once: an entry is never cleared or overwritten, so the canonical address for a
 given key is fixed for the life of the factory.
 
-```solidity
-mapping(bytes32 => address) public optionFor
-```
-
-
+---
 
 ##### permissions
+
+```solidity
+mapping(address => mapping(address => uint256)) public permissions
+```
 
 Permission table: `permissions[owner][operator] -> bitmask` of `Perm` flags.
 One row per (owner, operator) pair covering every option this factory created:
@@ -1410,14 +1332,16 @@ wrong one fails open. Spell out whichever you mean:
 holds every bit: `permissions(o, op) & mask == mask`
 holds any bit:   `permissions(o, op) & mask != 0`
 
-```solidity
-mapping(address => mapping(address => uint256)) public permissions
-```
-
-
+---
 
 ##### optionKey(CreateParams memory p)
 
+```solidity
+function optionKey(CreateParams memory p) public pure returns (bytes32);
+```
+
+- `p` `CreateParams`: The `CreateParams` to key.
+- Returns `bytes32`: The `keccak256` registry key.
 
 Deterministic registry key for a set of economic params. All seven `CreateParams`
 fields are economic identity, so every one is folded into the hash — two params that
@@ -1426,25 +1350,16 @@ differ in any field produce different keys (and therefore distinct option market
 `public pure` so off-chain callers and tests can compute the key and look up
 `optionFor` without a creation tx.
 
-```solidity
-function optionKey(CreateParams memory p) public pure returns (bytes32);
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`p`|`CreateParams`|The `CreateParams` to key.|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`<none>`|`bytes32`|The `keccak256` registry key.|
-
+---
 
 ##### createOption(CreateParams memory p)
 
+```solidity
+function createOption(CreateParams memory p) public nonReentrant nonZero(p.strike) returns (address option_);
+```
+
+- `p` `CreateParams`: See `CreateParams`: - `collateral`, `consideration`: ERC20 addresses; must differ. Standard ERC-20 only — no fee-on-transfer or rebasing tokens. - `expirationDate`: unix timestamp; must be strictly greater than `block.timestamp`. - `strike`: 18-decimal fixed point (consideration per collateral, inverted for puts). Must be non-zero, and when `consDec > collDec` must also satisfy the GRK-3 bound `strike <= type(uint256).max / 10**(consDec - collDec)`. - `isPut`: option flavour. - `isEuro`: `true` for European (no pre-expiry exercise), `false` for American. - `windowSeconds`: post-expiry exercise window length in seconds; taken literally (no contract-side default). American allows `0` (no extension); European requires `> 0`.
+- Returns `option_` `address`: The canonical `Option` address — either freshly deployed, or the existing option if an economically-identical one already exists (get-or-create; see `optionFor`).
 
 Deploy a new Option + Receipt pair. Emits [OptionCreated](#factory).
 
@@ -1456,25 +1371,16 @@ NOT supported and will corrupt the option's 1:1 accounting (see the contract-lev
 "Supported tokens" note). There is no creation-time guard against this — the caller is
 responsible for only pairing standard tokens.
 
-```solidity
-function createOption(CreateParams memory p) public nonReentrant nonZero(p.strike) returns (address option_);
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`p`|`CreateParams`|See `CreateParams`: - `collateral`, `consideration`: ERC20 addresses; must differ. Standard ERC-20 only — no fee-on-transfer or rebasing tokens. - `expirationDate`: unix timestamp; must be strictly greater than `block.timestamp`. - `strike`: 18-decimal fixed point (consideration per collateral, inverted for puts). Must be non-zero, and when `consDec > collDec` must also satisfy the GRK-3 bound `strike <= type(uint256).max / 10**(consDec - collDec)`. - `isPut`: option flavour. - `isEuro`: `true` for European (no pre-expiry exercise), `false` for American. - `windowSeconds`: post-expiry exercise window length in seconds; taken literally (no contract-side default). American allows `0` (no extension); European requires `> 0`.|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`option_`|`address`|The canonical `Option` address — either freshly deployed, or the existing option if an economically-identical one already exists (get-or-create; see `optionFor`).|
-
+---
 
 ##### createOptions(CreateParams[] memory params)
 
+```solidity
+function createOptions(CreateParams[] memory params) external returns (address[] memory result);
+```
+
+- `params` `CreateParams[]`: Array of `CreateParams`.
+- Returns `result` `address[]`: Option addresses aligned with `params` — newly deployed or pre-existing.
 
 Batch form of [createOption](#factory). Same ordering in → same ordering out.
 
@@ -1483,25 +1389,16 @@ naming an existing market yields that market's address and deploys nothing. Entr
 not isolated — one invalid entry reverts the whole batch, including entries already
 processed.
 
-```solidity
-function createOptions(CreateParams[] memory params) external returns (address[] memory result);
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`params`|`CreateParams[]`|Array of `CreateParams`.|
-
-**Returns**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`result`|`address[]`|Option addresses aligned with `params` — newly deployed or pre-existing.|
-
+---
 
 ##### setPermissions(address operator, uint256 mask)
 
+```solidity
+function setPermissions(address operator, uint256 mask) external nonZeroAddr(operator);
+```
+
+- `operator` `address`: Address being granted (or, for the caller's own address, the automation opt-in).
+- `mask` `uint256`: Full replacement mask; must not contain bits outside `Perm.ALL`.
 
 Set `operator`'s permission mask over the caller's positions, overwriting any
 previous mask. `0` revokes everything. Bits: `Perm.TRANSFER` (1), `Perm.MINT` (2),
@@ -1532,37 +1429,19 @@ netting an inbound transfer from anyone else requires a `BURN` grant to that
 initiator (see `Perm`). The other bits are meaningless on self (self action is
 always allowed directly).
 
-```solidity
-function setPermissions(address operator, uint256 mask) external nonZeroAddr(operator);
-```
-
-**Parameters**
-
-|Name|Type|Description|
-|----|----|-----------|
-|`operator`|`address`|Address being granted (or, for the caller's own address, the automation opt-in).|
-|`mask`|`uint256`|    Full replacement mask; must not contain bits outside `Perm.ALL`.|
-
+---
 
 ##### addPermissions(address operator, uint256 mask)
-
-
-OR `mask` into `operator`'s existing permission mask (adds bits, never removes).
-Use [setPermissions](#factory) to remove bits or revoke outright.
 
 ```solidity
 function addPermissions(address operator, uint256 mask) external nonZeroAddr(operator);
 ```
 
-**Parameters**
+- `operator` `address`: Address being granted.
+- `mask` `uint256`: Bits to add; must not contain bits outside `Perm.ALL`.
 
-|Name|Type|Description|
-|----|----|-----------|
-|`operator`|`address`|Address being granted.|
-|`mask`|`uint256`|    Bits to add; must not contain bits outside `Perm.ALL`.|
-
-
-
+OR `mask` into `operator`'s existing permission mask (adds bits, never removes).
+Use [setPermissions](#factory) to remove bits or revoke outright.
 
 </details>
 
@@ -1570,9 +1449,6 @@ function addPermissions(address operator, uint256 mask) external nonZeroAddr(ope
 <summary>Events & Errors</summary>
 
 ##### OptionCreated
-
-Emitted for every newly-created option. NOT emitted when get-or-create returns an
-existing Option — a market's creation event fires exactly once, ever.
 
 ```solidity
 event OptionCreated(
@@ -1588,50 +1464,62 @@ event OptionCreated(
 );
 ```
 
+Emitted for every newly-created option. NOT emitted when get-or-create returns an
+existing Option — a market's creation event fires exactly once, ever.
+
+---
 
 ##### PermissionsUpdated
-
-Emitted whenever `owner`'s permission mask for `operator` changes ([setPermissions](#factory)
-[addPermissions](#factory)). `mask` is the full resulting mask, not a delta.
 
 ```solidity
 event PermissionsUpdated(address indexed owner, address indexed operator, uint256 mask);
 ```
 
+Emitted whenever `owner`'s permission mask for `operator` changes ([setPermissions](#factory)
+[addPermissions](#factory)). `mask` is the full resulting mask, not a delta.
+
+---
 
 ##### InvalidAddress
-
-Thrown when a zero address is supplied where a real one is required (either token at
-creation, `operator` in [setPermissions](#factory) / [addPermissions](#factory)) — and also by
-[transferFrom](#factory) when the caller is not a Receipt this factory registered.
 
 ```solidity
 error InvalidAddress();
 ```
 
+Thrown when a zero address is supplied where a real one is required (either token at
+creation, `operator` in [setPermissions](#factory) / [addPermissions](#factory)) — and also by
+[transferFrom](#factory) when the caller is not a Receipt this factory registered.
+
+---
 
 ##### InvalidTokens
-
-Thrown when `collateral == consideration` (no real option pair).
 
 ```solidity
 error InvalidTokens();
 ```
 
+Thrown when `collateral == consideration` (no real option pair).
+
+---
 
 ##### InvalidValue
+
+```solidity
+error InvalidValue();
+```
 
 Thrown when a value param is invalid: strike (zero, or over the GRK-3 decimals-gap
 bound), expiration, window, a token's `decimals()` above 36, a salt array in
 [createOptions2](#factory) whose length does not match `params`, or a permission mask carrying
 bits outside `Perm.ALL`.
 
-```solidity
-error InvalidValue();
-```
-
+---
 
 ##### OptionExists
+
+```solidity
+error OptionExists(address existing);
+```
 
 Thrown by [createOption2](#factory) / [createOptions2](#factory) when a CREATE2 salt was supplied but an
 economically-identical Option already exists at an address that salt does not resolve
@@ -1639,21 +1527,15 @@ to. Carries the occupying address so the caller can either accept it (re-submit 
 zero salts, or call [createOption](#factory)) or change the option's economic params. The mined
 salt is NOT consumed by this revert — it stays usable on a different market.
 
-```solidity
-error OptionExists(address existing);
-```
-
+---
 
 ##### FeeOnTransferNotSupported
-
-Thrown when a token's transferFrom delivers less than `amount` (fee-on-transfer / rebasing).
 
 ```solidity
 error FeeOnTransferNotSupported();
 ```
 
-
-
+Thrown when a token's transferFrom delivers less than `amount` (fee-on-transfer / rebasing).
 
 </details>
 

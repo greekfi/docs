@@ -127,7 +127,9 @@ function renderMembers(md, drop = []) {
     const tail = chunk.slice(decl.index + decl[0].length);
     const fn = sig.match(/\bfunction\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
     const headingLine = fn ? `### ${fn[1]}(${fn[2].trim()})` : `### ${heading}`;
-    const text = `${headingLine}\n\n${desc}\n\n${decl[0]}\n${tail}`;
+    // Member layout: heading → declaration → compact param bullets → description.
+    const body = [decl[0], tablesToBullets(tail), desc.trim()].filter(Boolean).join("\n\n");
+    const text = `${headingLine}\n\n${body}`;
     let rank;
     if (/\bevent\b/.test(sig)) rank = 2;
     else if (/\berror\b/.test(sig)) rank = 3;
@@ -136,10 +138,37 @@ function renderMembers(md, drop = []) {
     members.push({ rank, i, text });
   });
   members.sort((a, b) => a.rank - b.rank || a.i - b.i); // stable: keep source order within a bucket
+  const render = (list) => list.map((m) => m.text.trim()).join("\n\n---\n\n");
   return {
-    functions: members.filter((m) => m.rank <= 1).map((m) => m.text).join(""),
-    eventsErrors: members.filter((m) => m.rank >= 2).map((m) => m.text).join(""),
+    functions: render(members.filter((m) => m.rank <= 1)),
+    eventsErrors: render(members.filter((m) => m.rank >= 2)),
   };
+}
+
+// forge doc renders parameters and returns as three-column tables; a bullet a line
+// reads better inside the collapsibles. `<none>`-named return rows keep just the type.
+function tablesToBullets(tail) {
+  const out = [];
+  let section = null;
+  for (const line of tail.split("\n")) {
+    const bold = line.match(/^\*\*(Parameters|Returns)\*\*/);
+    if (bold) {
+      section = bold[1];
+      continue;
+    }
+    const row = line.match(/^\|(.+)\|\s*$/);
+    if (row) {
+      const cells = row[1].split("|").map((c) => c.trim());
+      if (cells[0] === "Name" || /^:?-+:?$/.test(cells[0])) continue; // header / separator rows
+      const [name, type, ...rest] = cells;
+      const text = rest.join("|");
+      const label = section === "Returns" && name === "`<none>`" ? `Returns ${type}` : `${name} ${type}`;
+      out.push(`- ${section === "Returns" && name !== "`<none>`" ? `Returns ${name} ${type}` : label}${text ? `: ${text}` : ""}`);
+      continue;
+    }
+    if (line.trim() !== "") out.push(line); // stray prose between tables — keep
+  }
+  return out.join("\n");
 }
 
 function rewriteLinks(md) {
