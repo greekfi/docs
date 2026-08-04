@@ -83,7 +83,7 @@ Users approve the **factory** once, not each option. The factory is the single t
 IERC20(collateral).approve(address(factory), type(uint256).max);
 ```
 
-That standard ERC20 allowance to the factory is the only gate: any Receipt contract created by the factory can ask the factory to pull against it. There is no separate factory-side allowance to register.
+Approve the factory once and every option it creates can pull against that allowance.
 
 ### Minting
 
@@ -116,7 +116,7 @@ See the [API Reference](./api) for full surface.
 
 ### Permissions
 
-The factory keeps a single permission bitmask per (owner, operator) pair. One grant covers every option the factory has created or ever will create, similar to an ERC-1155 universal approval, but split into per-action bits so you grant only what the operator needs:
+The factory keeps one permission bitmask per (owner, operator) pair. A single grant covers every option the factory creates:
 
 ```solidity
 // Bits from library Perm:
@@ -131,77 +131,42 @@ factory.addPermissions(operator, mask);   // OR new bits into the existing mask
 - **`REDEEM`** — the operator can trigger `receipt.redeemFor` on your behalf. Payout always goes to you; the operator only picks the timing.
 - **`EXERCISE`** — the operator can exercise your options, paying the strike and **receiving the collateral**. Only for a trusted keeper: this is a withdrawal right over your in-the-money value.
 
-The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`) as one grant. Revoke any grant with `factory.setPermissions(operator, 0)`. Every bit is dangerous in its own way; see [Perm](./api#perm) for the full read.
+The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`). Revoke with `factory.setPermissions(operator, 0)`. See [Perm](./api#perm) for the per-bit details.
 
 ## Auto-Mint & Auto-Burn
 
-Standard ERC20 transfers assume the sender has tokens and the receiver just credits them. For an options protocol, that's inflexible — a market maker often wants to sell options they haven't minted yet, and it would be unscalable to pre-mint 100 variations of options (strikes, expirations).
+A market maker often sells options it hasn't minted yet, and a writer buying options back wants the collateral returned in the same transaction. Greek handles both inside the transfer:
 
-Similarly, when receiving options to close a position an option writer wants that collateral back atomically.
+- **Auto-mint** — selling an option you haven't minted pulls your collateral and mints it during the transfer.
+- **Auto-burn** — receiving an option while you hold the matching Receipt pair-burns the two and returns your collateral.
 
-Greek offers **opt-in** capabilities for both:
-
-- **Auto-mint** — automatically mint options as they are transferred by collateralizing the underlying collateral.
-- **Auto-burn** — receiving options while holding matched Receipt tokens pair-burns and returns collateral.
-
-### Opting in
-
-Both behaviours are driven by the [permission bitmask](#permissions), scoped to whoever initiates the transfer:
+Both are off by default. One grant to the contract that settles your trades enables them:
 
 ```solidity
-// Let the RFQ settlement contract mint on shortfall and burn on buy-back
-factory.addPermissions(settlement, 2 | 4);   // Perm.MINT | Perm.BURN
-
-// Or enable both for transfers you initiate yourself
-factory.addPermissions(msg.sender, 2 | 4);   // the self entry
+factory.addPermissions(settlement, 6);   // MINT | BURN
 ```
-
-Disabled by default. **Auto-mint** fires when the transfer initiator holds `MINT` in the *sender's* mask; **auto-burn** fires when the initiator holds `BURN` in the *receiver's* mask. Each side is independent.
 
 ### Auto-mint: sell-without-minting
 
 ```solidity
-// Maker hasn't minted yet, but holds collateral (approved to the factory).
-// Maker grants MINT to the settlement contract, then signs a quote.
-factory.addPermissions(settlement, 2);   // Perm.MINT (with TRANSFER for RFQ: mask 7)
-
-// Settlement pulls options via transferFrom
+// Maker holds collateral (approved to the factory) but no options.
 option.transferFrom(maker, taker, 10e18);
 ```
 
-On the transfer:
+1. The maker's option balance is 0, so the factory pulls 10e18 collateral from the maker and mints 10e18 Option + 10e18 Receipt.
+2. The transfer then delivers the 10e18 Option to the taker.
 
-1. Maker's option balance is 0, requested amount is 10e18.
-2. Since the settlement contract holds `MINT` in the maker's mask, the deficit (`10e18 - 0`) is minted — the factory pulls 10e18 collateral from the maker and mints 10e18 Option + 10e18 Receipt to the maker.
-3. Then the standard transfer moves the 10e18 Option tokens to the taker.
-
-Net: maker holds 10 Receipt, taker holds 10 Option, collateral is locked in the Receipt contract. Same outcome as `mint` + `transfer`, one tx.
+Net: maker holds 10 Receipt (short), taker holds 10 Option. Same outcome as `mint` + `transfer`, one tx.
 
 ### Auto-burn: unwind-on-receive
 
 ```solidity
-// Writer holds 10 Receipt (short from an earlier sale) and grants BURN
-// to the settlement contract.
-factory.addPermissions(settlement, 4);   // Perm.BURN
-
-// Buying options back: settlement delivers 3e18 Option to the writer.
+// Writer is short 10 Receipt. Buying 3 options back:
 option.transferFrom(taker, writer, 3e18);
 ```
 
-On receive:
-
-1. Writer's Receipt balance is 10e18, incoming 3e18.
-2. Since the initiator holds `BURN` in the writer's mask, `min(3e18, 10e18) = 3e18` pairs are burned.
-3. 3e18 collateral is released back to the writer.
-
-### When it fires
-
-Both transfer entry points apply auto-settling: `transfer(to, amount)` and `transferFrom(from, to, amount)`. Auto-mint reads the initiator's bit in the **sender's** mask; auto-burn reads it in the **receiver's** mask. The self entry covers the cases where you are that initiator: sending your own tokens (auto-mint), or pulling options into your own wallet via `transferFrom` (auto-burn). Inbound transfers initiated by someone else consult *their* grant, not your self entry.
-
-### Why this matters
-
-- Market makers using RFQ can commit to a quote without pre-minting, then let the taker's settlement trigger the mint.
-- Pair holders can unwind a position just by receiving their matched tokens — no separate `burn` call needed.
+1. The incoming 3e18 Option meets the writer's 10e18 Receipt.
+2. 3e18 pairs burn and 3e18 collateral returns to the writer.
 
 ## Exercise
 

@@ -45,12 +45,6 @@ and serves as the shared approval hub.
 | Hemi               | 43111    | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
 | Hedera             | 295      | `0x20677001aFbAa8F28baebEa0b10bF96490Eb45ab` |
 
-:::warning Legacy factory
-An earlier factory at `0x0000000000008aF0c21B3099857341B3E2D41E39` remains deployed on
-Ethereum, Optimism, Arbitrum, Base, and Robinhood. It uses the old permission API and is
-superseded by the addresses above — always confirm against the app before interacting.
-:::
-
 ### Programmatic discovery
 
 Once deployed, options can be discovered by listening for the factory's event:

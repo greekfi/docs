@@ -38,24 +38,18 @@ The `bebopContract` is `0xbbbbbBB520d69a9775E85b458C58c648259FAD5F`. The quote r
 
 ## factory.setPermissions
 
-Greek options are minted per strike × expiry × underlying, so approving each one individually doesn't scale. The factory keeps a permission bitmask per (owner, operator) pair instead - one grant covers every option it has created or ever will. The bits come from `library Perm`: `TRANSFER = 1`, `MINT = 2`, `BURN = 4`, `REDEEM = 8`, `EXERCISE = 16`.
-
-The trading grant is one call:
+Greek options are minted per strike × expiry × underlying, so approving each one individually doesn't scale. The factory keeps a permission bitmask per (owner, operator) pair instead - one grant covers every option it creates. The trading grant is one call:
 
 ```solidity
 // TRANSFER | MINT | BURN = 7
 factory.setPermissions(bebopSettlement, 7);
 ```
 
-What each bit does in the trade:
+- **`TRANSFER`** - settlement can move your option tokens, no per-option ERC20 allowance needed.
+- **`MINT`** - selling an option you haven't minted auto-mints it inside the transfer, pulling collateral from [token.approve](#tokenapprove).
+- **`BURN`** - buying an option back while you hold the matching Receipt pair-burns them and returns your collateral.
 
-- **`TRANSFER`** - settlement can call `option.transferFrom(you, taker, amount)` on any option from the factory, no per-option ERC20 allowance needed.
-- **`MINT`** - selling an option you haven't minted auto-mints it inside the transfer, pulling collateral against your factory allowance from [token.approve](#tokenapprove). This is what lets a writer quote without pre-inventorying strikes.
-- **`BURN`** - buying an option back while you hold the matching Receipt pair-burns them on arrival and returns your collateral.
-
-A pure holder only strictly needs `TRANSFER`; `MINT` and `BURN` only ever fire once you're short, so the combined mask `7` is safe to grant either way. Revoke with `factory.setPermissions(bebopSettlement, 0)`.
-
-Scope note: this grant does **not** include `EXERCISE` or `REDEEM` - the settlement contract can never exercise your options or trigger your redemptions. See [Perm](./api#perm) for the full per-bit read.
+The grant never lets settlement exercise your options or trigger your redemptions. Revoke with `factory.setPermissions(bebopSettlement, 0)`. See [Perm](./api#perm) for the per-bit details.
 
 ## token.approve
 
