@@ -27,6 +27,14 @@
   --docusaurus-highlighted-code-line-bg: rgba(125, 146, 255, 0.15);
 }
 
+/* Diagrams exported from draw.io: keep a light background in both themes. */
+img[src="/img/permissions.svg"] {
+  background: #f7f7f8;
+  border-radius: 8px;
+  padding: 12px;
+  max-width: 100%;
+}
+
 /* API reference: per-contract <details> blocks render as info "alerts" with a blue
    fill. Drop the fill and keep a neutral border so they read as plain outlined
    sections. */
