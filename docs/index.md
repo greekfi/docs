@@ -21,17 +21,17 @@ There are two ways in. A **holder** buys options with cash and may exercise them
 
 ### I'm a holder: buy, then exercise
 
-**1. Approve your cash to Bebop.** Bebop's settlement contract pulls the cash leg with a standard `transferFrom`:
+**1. Approve your cash to Bebop's settlement contract.**
 
 ```solidity
 IERC20(usdc).approve(bebopContract, type(uint256).max);
 ```
 
-Read the settlement address off the quote response — it carries the `approvalTarget` for your chain. See Bebop's [RFQ API](https://docs.bebop.xyz/rfq-api/introduction) for the quote flow.
+Read the settlement address off the quote response's `approvalTarget`. See Bebop's [RFQ API](https://docs.bebop.xyz/rfq-api/introduction) for the quote flow.
 
 **2. Buy.** Request a quote, sign, done — the option tokens arrive in your wallet.
 
-**3. Exercise if it's in the money.** You pay the strike in consideration tokens and receive the collateral, so approve the consideration to the factory once (USDC for a call, WETH for a put):
+**3. Exercise if it's in the money.** Approve the consideration token to the factory once (USDC for a call, WETH for a put), then exercise:
 
 ```solidity
 IERC20(usdc).approve(address(factory), type(uint256).max);
@@ -40,11 +40,11 @@ option.exercise(amount);   // or exercise() for your whole balance
 
 Nothing exercises for you: if you don't act before the deadline, the value is forfeited. American options exercise any time up to the deadline, European only in the window after expiration — see [Exercise](#exercise).
 
-**Selling back instead?** Grant Bebop's settlement contract once on the factory — `factory.setPermissions(bebopSettlement, 7)` — and it can move your option tokens with no per-option approvals. Details in the writer path below.
+**Selling back instead?** Grant Bebop's settlement contract once on the factory: `factory.setPermissions(bebopSettlement, 7)`.
 
 ### I'm a writer: sell, then exit
 
-**1. Approve your collateral to the factory.** The factory is the single contract that pulls tokens from you — WETH to write calls, USDC to write puts:
+**1. Approve your collateral to the factory** — WETH to write calls, USDC to write puts:
 
 ```solidity
 IERC20(weth).approve(address(factory), type(uint256).max);
@@ -59,7 +59,7 @@ factory.setPermissions(bebopSettlement, 7);
 
 This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions](#permissions) for all five bits.
 
-**3. Sell.** Quote through the RFQ and the sale settles itself: your collateral is pulled, the option mints, and the buyer pays you — one transaction. You now hold Receipt tokens: your short position and claim on the escrowed collateral.
+**3. Sell.** Quote through the RFQ. The sale pulls your collateral, mints the option, and pays you in one transaction; you now hold Receipt tokens (your short).
 
 **4. Exit the short.** Two ways out:
 
@@ -83,9 +83,9 @@ Writing an option means depositing collateral and receiving two ERC20 tokens bac
  └──────────────┘      └──────────────┘
 ```
 
-The **Option** is the long side: the right to pay the strike and take the collateral. The **Receipt** is the short side: the claim on that collateral once the option expires or is exercised. The Receipt contract itself escrows every deposit, so each option is fully collateralized from the moment it exists — there is nothing to margin and nothing to liquidate.
+The **Option** is the long side: the right to pay the strike and take the collateral. The **Receipt** is the short side: the claim on that collateral once the option expires or is exercised. The Receipt contract escrows every deposit.
 
-Both tokens transfer freely and use the collateral token's decimals. Minting is always 1:1: one unit of collateral backs one Option and one Receipt, with no fees at mint, exercise, or redemption.
+Both tokens transfer freely and use the collateral token's decimals. Minting is 1:1: one unit of collateral backs one Option and one Receipt.
 
 Names are generated from the option's parameters, `<prefix>-<collateral>-<consideration>-<strike>-<YYYY-MM-DD>`:
 
@@ -98,7 +98,7 @@ RCTE-WETH-USDC-3000-2026-06-27     // Receipt, European
 
 ### Minting
 
-Approve the factory once — it is the only contract that ever pulls tokens from you, and one approval covers every option it creates:
+Approve the factory once; one approval covers every option it creates:
 
 ```solidity
 IERC20(collateral).approve(address(factory), type(uint256).max);
@@ -130,15 +130,15 @@ The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`). Revoke wit
 
 ### Auto-mint & auto-burn
 
-A market maker often sells options it hasn't minted yet, and a writer buying options back wants the collateral returned in the same transaction. The `MINT` and `BURN` bits of the [permission grant](#permissions) make both happen inside the transfer itself — the Setup grant (mask `7`) already switches them on.
+The `MINT` and `BURN` bits of the [permission grant](#permissions) mint and unwind inside the transfer itself — the Setup grant (mask `7`) already switches them on.
 
-**Selling without minting** — the maker holds collateral but no options; the sale mints them on the way out:
+**Selling without minting** — the maker holds collateral but no options:
 
 ```solidity
 option.transferFrom(maker, taker, 10e18);
 ```
 
-The maker's balance is 0, so the factory pulls 10e18 collateral, mints 10e18 Option + Receipt, and the transfer delivers the Options to the taker. The maker ends up short 10 Receipt — same outcome as `mint` + `transfer`, one transaction.
+The maker's balance is 0, so the factory pulls 10e18 collateral, mints 10e18 Option + Receipt, and the transfer delivers the Options to the taker. The maker ends up short 10 Receipt.
 
 **Unwinding on receive** — a writer short 10 Receipt buys 3 options back:
 
@@ -150,7 +150,7 @@ The incoming 3e18 Option meets the writer's Receipts, 3e18 pairs burn, and 3e18 
 
 ### Exercise
 
-An option is a swap: pay `strike` units of the **consideration** token, receive one unit of the **collateral** token. A WETH call at $3,000 is the right to swap 3,000 USDC for 1 WETH; the holder exercises when spot is above the strike. Any standard ERC20 can be collateral, and the consideration is usually a dollar token — but any pair works.
+Exercising is a swap: pay `strike` units of the **consideration** token, receive one unit of the **collateral** token. A WETH call at $3,000 swaps 3,000 USDC for 1 WETH.
 
 ```solidity
 IERC20(consideration).approve(address(factory), type(uint256).max);
@@ -184,7 +184,7 @@ Minting a call deposits WETH; minting a put deposits USDC. Exercising a put pays
 
 ### Pair-burn
 
-If you hold matched Option and Receipt of the same series, burn them together and take the collateral back — the exact inverse of minting:
+If you hold matched Option and Receipt of the same series, burn them together and take the collateral back:
 
 ```solidity
 option.burn(amount);
@@ -200,13 +200,13 @@ After the window closes, Receipt holders redeem:
 receipt.redeem();   // or redeem(amount)
 ```
 
-The pool holds collateral for the options never exercised and consideration for the ones that were. Redemption pays **consideration first** (strike × amount), then **collateral 1:1** for the rest — first come, first served on the consideration. You are owed the same value either way; timing only changes which token you're paid in.
+Redemption pays **consideration first** (strike × amount, from exercised options), then **collateral 1:1** for the rest — first come, first served on the consideration. Timing only changes which token you're paid in, not the value.
 
 A keeper can trigger redemption for you via the `REDEEM` permission (`factory.addPermissions(keeper, 8)`). Payout always goes to the holder, never the keeper.
 
 ## Deployed addresses
 
-The factory is the single entry point per chain: it deploys every Option + Receipt pair and is the one contract you approve.
+One factory per chain — the contract you approve and grant permissions on.
 
 | Network            | Chain ID | Factory |
 |--------------------|---------:|---------|
