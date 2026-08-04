@@ -151,13 +151,22 @@ Your favorite LLM may raise concerns about attack vectors in this protocol. Rest
 
 If all you ever do is `token.approve(factory, X)`, no third party can move anything of yours. Only Receipt contracts registered by the factory can pull that allowance, and only through calls you make yourself: `Option.mint(account, amount)` reverts without the `MINT` grant, `exerciseFor` reverts without `EXERCISE`, `redeemFor` skips holders who never granted `REDEEM`, and your option tokens move only with an ordinary ERC20 allowance.
 
-#### Solvency and Guards
+#### The Grants That Can Hurt You
 
-- **Backing invariant**: every Receipt is backed 1:1 by a mix of collateral and consideration; `collateral + toCollateral(consideration) >= totalSupply` at all times.
-- **Rounding favors the pool**: collections round up, payouts round down; dust stays in the contract and is only sweepable once supply is zero.
-- **Reentrancy**: all three contracts use `ReentrancyGuardTransient`, and every payout path burns before it transfers.
-- **Token policy**: fee-on-transfer tokens are rejected on the spot (`FeeOnTransferNotSupported`); rebasing tokens are unsupported; token decimals are capped at 36.
-- **Authenticity**: verify any Option on-chain with `factory.receipts(option.receipt()) && Receipt(option.receipt()).option() == option`.
+- **`EXERCISE` to the wrong party.** The grantee can exercise your in-the-money options at any time: they pay the strike, they receive the collateral, and you get nothing on-chain. Grant it only to a keeper that provably settles your share back to you.
+- **`MINT` to the wrong party.** `token.approve(factory, X)` plus a `MINT` grant equals `token.approve(grantee, X)`: the grantee can open shorts against your entire factory allowance, in any market, at any strike. Combined with an ordinary ERC20 allowance on the option token, they can also transfer more options than you hold and leave you with a naked short.
+- **`TRANSFER` to the wrong party.** Full custody of your long positions: the grantee can move your options to itself and exercise them as its own. This is not weaker than `EXERCISE`; it reaches the same value in two steps.
+- **`MINT` on your own address.** `setPermissions(you, MINT)` removes the ERC20 safety net: a transfer larger than your balance no longer reverts, it silently pulls collateral and opens a short for the difference. A typo becomes a position.
+- **Mask `7` to an address that isn't really the settlement contract.** The grant is only as safe as the address. Verify you are granting to Bebop's actual settlement contract, exactly as you would verify a router before an unlimited approve.
+
+#### Looks Dangerous, Isn't
+
+- **A stranger creates an option market on your token, or on a scam token.** Creation is permissionless, but a market existing touches nothing of yours. Your allowance only moves inside a mint or exercise that you, or a `MINT` grantee of yours, initiated.
+- **Someone airdrops you Option or Receipt tokens.** They sit inert. Receiving tokens never pulls your funds and never burns anything unless you granted `BURN` to the party that initiated the transfer; even then, the burn returns collateral to you, not to them.
+- **A keeper batch-calls `redeemFor` with your address in the list.** If you never granted `REDEEM`, you are skipped. If you did, the payout still lands in your wallet; the keeper cannot redirect a single token.
+- **The factory holds an unlimited allowance from you.** Only Receipt contracts the factory itself deployed can pull it, and only inside your own (or your grantee's) calls. The factory owner has no path to it.
+- **A site shows you an unfamiliar option token.** Verify it on-chain: `factory.receipts(option.receipt()) && Receipt(option.receipt()).option() == option`. True means the factory deployed the pair and its terms are fixed in bytecode.
+- **Another holder exercises and takes collateral out of the pool.** Exercise pays the strike in at the same rate, so every Receipt stays backed 1:1 by collateral plus consideration; a writer is always owed full value at redemption.
 
 #### Audit
 
