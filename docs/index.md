@@ -131,10 +131,36 @@ factory.setPermissions(operator, mask);   // overwrite the operator's mask
 factory.addPermissions(operator, mask);   // OR new bits into the existing mask
 ```
 
-- **`TRANSFER`**; treat exactly like an ERC20 approval: grant only to trusted parties such as swap contracts.
-- **`MINT` / `BURN`**; trusted parties only, ones that won't mint against your collateral and steal the tokens.
-- **`REDEEM`**; less risky: the operator calls redeem for you and the assets always go to you.
-- **`EXERCISE`**; grant only to parties that will exercise in good faith: the operator pays the strike, receives the collateral, and settles your share with you off-chain.
+Every grant covers every option this factory has created or ever will create; there are no per-market grants. Revoke any grant with `factory.setPermissions(operator, 0)`; every change emits `PermissionsUpdated(owner, operator, mask)`, so grants are monitorable on-chain. Acting on your own position never needs a bit; the bits exist only to authorize *other* addresses.
+
+**`TRANSFER` (1)**; treat exactly like an ERC20 approval: grant only to trusted parties such as swap contracts.
+
+- Gates one thing: `Option.transferFrom` skips the per-option ERC20 allowance when the caller holds this bit in the sender's mask.
+- The grantee can move any of your option tokens in any market. That is full custody of your longs: it can move them to itself and exercise them as their own holder, capturing your in-the-money value without ever holding `EXERCISE`.
+- It cannot touch your Receipt tokens (plain ERC20, no permission hook), your collateral allowance, or anything it hasn't first taken custody of.
+
+**`MINT` (2)**; trusted parties only, ones that won't mint against your collateral allowance.
+
+- Gates `Option.mint(account, amount)` and the auto-mint leg of transfers (which reads the *sender's* mask).
+- The grantee can convert your entire factory collateral allowance into positions, in any market, at any strike: `token.approve(factory, X)` plus a `MINT` grant to A is functionally `token.approve(A, X)`. The minted Option + Receipt land in your account, not theirs, but paired with an ordinary ERC20 allowance on an option token the grantee can transfer more than you hold, auto-mint the deficit, and leave you a naked short.
+- On your own address, `MINT` switches on auto-mint for transfers you initiate: an oversize transfer no longer reverts with insufficient balance, it pulls collateral and opens a short for the difference.
+
+**`BURN` (4)**; safe on the value axis, timing is the grantee's.
+
+- Gates `Option.burn(account, amount)`, `Option.expire(holder, amount)`, and the auto-burn leg of transfers (which reads the *receiver's* mask for the transfer initiator).
+- The grantee can pair-burn your matched Option + Receipt (collateral returns to **you**, never to them), net options it delivers into you against your short, and burn your worthless expired longs.
+- The risk is timing, not theft: the grantee chooses the moment your hedge unwinds.
+
+**`REDEEM` (8)**; the low-stakes bit.
+
+- Gates `Receipt.redeemFor(holders)`; entries without the grant are skipped.
+- The grantee can trigger redemption of your Receipts; the payout always lands in your wallet. It chooses the timing, and therefore whether you settle into consideration or collateral.
+
+**`EXERCISE` (16)**; the highest-trust bit: grant only to parties that will exercise in good faith.
+
+- Gates `Option.exerciseFor` (single and batch).
+- The grantee burns your options, pays the strike itself, and **receives the collateral**; you get nothing on-chain. Nothing in the contract forces it to pass your surplus back; that settlement happens off-chain or not at all.
+- Use it for exactly one thing: a keeper that exercises in-the-money options you would otherwise let lapse, and provably returns your share.
 
 <img src="/img/permissions.svg" alt="Permission grants" />
 
