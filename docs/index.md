@@ -143,6 +143,7 @@ Every grant covers every option this factory has created or ever will create; th
 
 - Gates `Option.mint(account, amount)` and the auto-mint leg of transfers (which reads the *sender's* mask).
 - The grantee can convert your entire factory collateral allowance into positions, in any market, at any strike: `token.approve(factory, X)` plus a `MINT` grant to A is functionally `token.approve(A, X)`. The minted Option + Receipt land in your account, not theirs, but paired with an ordinary ERC20 allowance on an option token the grantee can transfer more than you hold, auto-mint the deficit, and leave you a naked short.
+- On your own address, `MINT` switches on auto-mint for transfers you initiate: an oversize transfer no longer reverts with insufficient balance, it pulls collateral and opens a short for the difference.
 
 **`BURN` (4)**; safe on the value axis, timing is the grantee's.
 
