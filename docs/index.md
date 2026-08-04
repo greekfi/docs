@@ -8,17 +8,16 @@ toc_max_heading_level: 3
 
 Greek turns options into plain ERC20 tokens. Writing an option locks collateral and mints two tokens: the **Option**, the right to exercise, and the **Receipt**, the claim on the locked collateral. Both transfer freely and trade like any other token — production trading runs through [Bebop](https://bebop.xyz)'s RFQ system.
 
-Every option is fully collateralized, works on any ERC20 pair at any strike and expiry, and comes in **American** and **European** flavours. There is no oracle: the holder decides when to exercise during a time-gated window. There are no protocol fees.
+Every option is fully collateralized, works on any ERC20 pair at any strike and expiry, and comes in **American** and **European** flavours. There is no oracle and no protocol fee: the holder decides when to exercise, inside a time-gated window.
 
 - **[Setup](#setup)** — start here: the holder and writer paths, start to finish.
-- **[Fundamentals](#fundamentals)** — the two tokens, minting, permissions, exercise.
-- **[Settlement](#settlement)** — exercise windows, pair-burn, redemption.
+- **[How it works](#how-it-works)** — the two tokens, permissions, exercise, redemption.
 - **[Deployed addresses](#deployed-addresses)** — the factory on every chain.
 - **[API Reference](#api-reference)** — full contract surface, generated from the contracts.
 
 ## Setup
 
-Greek options are plain ERC20 tokens traded through [Bebop](https://bebop.xyz)'s RFQ system. There are two ways in. A **holder** buys options with cash and may exercise them. A **writer** sells options against collateral and collects the premium. Each side needs a couple of one-time approvals; here is each path start to finish.
+There are two ways in. A **holder** buys options with cash and may exercise them. A **writer** sells options against collateral and collects the premium. Each side needs a couple of one-time approvals; here is each path start to finish.
 
 ### I'm a holder: buy, then exercise
 
@@ -39,14 +38,7 @@ IERC20(usdc).approve(address(factory), type(uint256).max);
 option.exercise(amount);   // or exercise() for your whole balance
 ```
 
-Exercise is manual — there is no oracle, and nothing exercises for you. If you don't act before the deadline, the value is forfeited. When you can exercise depends on the flavour:
-
-| | Before expiry | In the window | After the deadline |
-|---|---|:---:|:---:|
-| **American** | ✅ | --- | --- |
-| **European** | --- | ✅ | --- |
-
-See [Settlement](#settlement) for the window mechanics.
+Nothing exercises for you: if you don't act before the deadline, the value is forfeited. American options exercise any time up to the deadline, European only in the window after expiration — see [Exercise](#exercise).
 
 **Selling back instead?** Grant Bebop's settlement contract once on the factory — `factory.setPermissions(bebopSettlement, 7)` — and it can move your option tokens with no per-option approvals. Details in the writer path below.
 
@@ -72,16 +64,9 @@ This lets settlement move your option tokens (`TRANSFER`), mint options you have
 **4. Exit the short.** Two ways out:
 
 - **Buy back** — options you buy back pair-burn against your Receipts on arrival and your collateral returns immediately.
-- **Redeem** — after the exercise window closes, `receipt.redeem()` pays out what you're owed: consideration first (strike × amount, from holders who exercised), then collateral 1:1 for the rest.
+- **Redeem** — after the window closes, `receipt.redeem()` pays out what you're owed. See [Redemption](#redemption).
 
-```solidity
-receipt.redeem();          // your whole balance
-receipt.redeem(1e18);      // a specific amount
-```
-
-Redemption is first-come-first-served on the consideration pool: an early redeemer is paid in consideration, later ones in collateral. The amount you're owed is the same either way. See [Redemption](#redemption-the-short-side-gets-paid).
-
-## Fundamentals
+## How it works
 
 ### The two tokens
 
@@ -136,25 +121,16 @@ factory.addPermissions(operator, mask);   // OR new bits into the existing mask
 ```
 
 - **`TRANSFER`** — the operator can move your option tokens without per-option ERC20 allowances. This is full custody of your long positions.
-- **`MINT`** — the operator can mint against your collateral allowance. Powers [auto-mint](#auto-mint--auto-burn).
+- **`MINT`** — the operator can mint against your collateral allowance ([auto-mint](#auto-mint--auto-burn)).
 - **`BURN`** — the operator's transfers into you pair-burn against your Receipts ([auto-burn](#auto-mint--auto-burn)).
-- **`REDEEM`** — the operator can trigger redemption for you. Payout always goes to you.
-- **`EXERCISE`** — the operator can exercise your options, paying the strike and **receiving the collateral**. Only for a trusted keeper.
+- **`REDEEM`** — the operator can trigger [redemption](#redemption) for you. Payout always goes to you.
+- **`EXERCISE`** — the operator can [exercise](#exercise) your options, paying the strike and **receiving the collateral**. Only for a trusted keeper.
 
 The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`). Revoke with `factory.setPermissions(operator, 0)`.
 
 ### Auto-mint & auto-burn
 
-A market maker often sells options it hasn't minted yet, and a writer buying options back wants the collateral returned in the same transaction. Greek handles both inside the transfer:
-
-- **Auto-mint** — selling an option you haven't minted pulls your collateral and mints it during the transfer.
-- **Auto-burn** — receiving an option while you hold the matching Receipt pair-burns the two and returns your collateral.
-
-Both are off by default. One grant to the contract that settles your trades enables them:
-
-```solidity
-factory.addPermissions(settlement, 6);   // MINT | BURN
-```
+A market maker often sells options it hasn't minted yet, and a writer buying options back wants the collateral returned in the same transaction. The `MINT` and `BURN` bits of the [permission grant](#permissions) make both happen inside the transfer itself — the Setup grant (mask `7`) already switches them on.
 
 **Selling without minting** — the maker holds collateral but no options; the sale mints them on the way out:
 
@@ -174,11 +150,7 @@ The incoming 3e18 Option meets the writer's Receipts, 3e18 pairs burn, and 3e18 
 
 ### Exercise
 
-An option is a swap: pay `strike` units of the **consideration** token, receive one unit of the **collateral** token. A WETH call at $3,000 is the right to swap 3,000 USDC for 1 WETH; the holder exercises when spot is above the strike.
-
-Any standard ERC20 can be collateral (WETH, WBTC, UNI, ...). The consideration is usually a dollar token (USDC, USDT, DAI), but any ERC20 works — WETH-WBTC and other non-dollar pairs are valid markets.
-
-Approve the consideration to the factory once, then exercise:
+An option is a swap: pay `strike` units of the **consideration** token, receive one unit of the **collateral** token. A WETH call at $3,000 is the right to swap 3,000 USDC for 1 WETH; the holder exercises when spot is above the strike. Any standard ERC20 can be collateral, and the consideration is usually a dollar token — but any pair works.
 
 ```solidity
 IERC20(consideration).approve(address(factory), type(uint256).max);
@@ -186,7 +158,20 @@ IERC20(consideration).approve(address(factory), type(uint256).max);
 option.exercise(1e18);   // burn 1 Option, pay 1 × strike, receive 1 collateral
 ```
 
-**American** options exercise any time up to the deadline; **European** options only during the post-expiry window. There is no oracle and no auto-settlement — a holder who never exercises an in-the-money option forfeits that value. See [Settlement](#settlement) for the window mechanics.
+Every option has an `expirationDate` and an `exerciseDeadline` (expiry plus the option's `windowSeconds`). When you can exercise depends on the flavour:
+
+| | Before expiry | In the window | After the deadline |
+|---|---|:---:|:---:|
+| **American** | ✅ | --- | --- |
+| **European** | --- | ✅ | --- |
+
+American options typically use `windowSeconds = 0`, so their deadline is expiration itself; European options always have a window. Transfers and pair-burns stop at the deadline too. An option never exercised lapses worthless; `option.expire(holder, amount)` burns the dead tokens if you want the wallet clean.
+
+:::note Letting someone exercise for you
+If you won't be watching the market, grant a keeper the `EXERCISE` permission — `factory.addPermissions(keeper, 16)` — and it can call `option.exerciseFor(holder, amount)` for you. The keeper pays the strike and receives the collateral, so grant it only to a party that settles with you off-chain.
+:::
+
+### Calls and puts
 
 A put is a call on the swapped pair — collateral and consideration trade places, and the contract math is identical. The `isPut` flag only changes how the strike is displayed:
 
@@ -197,45 +182,17 @@ A put is a call on the swapped pair — collateral and consideration trade place
 
 Minting a call deposits WETH; minting a put deposits USDC. Exercising a put pays WETH and receives USDC — the same swap, reversed.
 
-## Settlement
+### Pair-burn
 
-There is no oracle and no settlement transaction. **American** options exercise any time up to expiration; **European** options exercise during a window after expiration. The holder decides when to exercise and pays the strike — an option never exercised simply lapses.
-
-### The exercise window
-
-Two timestamps, set at creation:
-
-- **`expirationDate`** — expiry.
-- **`exerciseDeadline`** — expiry plus the option's `windowSeconds`; exercise, transfers, and pair-burns all stop here.
-
-American options typically use `windowSeconds = 0`, so the deadline is expiration itself. European options always have a window.
-
-```
-   mint & trade              exercise window
- ──────────────●────────────────────────●────────────▶  time
-          expirationDate          exerciseDeadline
-
- American: exercise any time up to the deadline
- European: exercise only between expiration and the deadline
-```
-
-An option never exercised lapses worthless after the deadline; `option.expire(holder, amount)` burns the dead tokens if you want the wallet clean.
-
-:::note Letting someone exercise for you
-Exercise is manual. If you won't be watching the market, grant a keeper the `EXERCISE` permission — `factory.addPermissions(keeper, 16)` — and it can call `option.exerciseFor(holder, amount)` for you. The keeper pays the strike and receives the collateral, so grant it only to a party that settles with you off-chain.
-:::
-
-### Pair-burn: unwinding early
-
-If you hold matched Option and Receipt of the same series, burn them together and take the collateral back:
+If you hold matched Option and Receipt of the same series, burn them together and take the collateral back — the exact inverse of minting:
 
 ```solidity
 option.burn(amount);
 ```
 
-Works any time up to the deadline. Buying back options you wrote does this automatically — see [auto-burn](#auto-mint--auto-burn).
+Works any time up to the deadline. Buying back options you wrote does this automatically ([auto-burn](#auto-mint--auto-burn)).
 
-### Redemption: the short side gets paid
+### Redemption
 
 After the window closes, Receipt holders redeem:
 
