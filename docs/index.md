@@ -11,7 +11,7 @@ Greek turns options into plain ERC20 tokens. Writing an option locks collateral 
 Every option is fully collateralized, works on any ERC20 pair at any strike and expiry, and comes in **American** and **European** flavours. There is no oracle and no protocol fee: the holder decides when to exercise, inside a time-gated window.
 
 - **[Setup](#setup)** — start here: the holder and writer paths, start to finish.
-- **[How it works](#how-it-works)** — the two tokens, permissions, exercise, redemption.
+- **[How it works](#how-it-works)** — ERC20 option tokens, mint and burn, permissions, exercise and redemption.
 - **[Deployed addresses](#deployed-addresses)** — the factory on every chain.
 - **[API Reference](#api-reference)** — full contract surface, generated from the contracts.
 
@@ -38,7 +38,7 @@ IERC20(usdc).approve(address(factory), type(uint256).max);
 option.exercise(amount);   // or exercise() for your whole balance
 ```
 
-Nothing exercises for you: if you don't act before the deadline, the value is forfeited. American options exercise any time up to the deadline, European only in the window after expiration — see [Exercise](#exercise).
+Nothing exercises for you: if you don't act before the deadline, the value is forfeited. American options exercise any time up to the deadline, European only in the window after expiration — see [Exercise and redemption](#exercise-and-redemption).
 
 **Selling back instead?** Grant Bebop's settlement contract once on the factory: `factory.setPermissions(bebopSettlement, 7)`.
 
@@ -57,37 +57,28 @@ IERC20(weth).approve(address(factory), type(uint256).max);
 factory.setPermissions(bebopSettlement, 7);
 ```
 
-This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions](#permissions) for all five bits.
+This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions and security](#permissions-and-security) for all five bits.
 
 **3. Sell.** Quote through the RFQ. The sale pulls your collateral, mints the option, and pays you in one transaction; you now hold Receipt tokens (your short).
 
 **4. Exit the short.** Two ways out:
 
 - **Buy back** — options you buy back pair-burn against your Receipts on arrival and your collateral returns immediately.
-- **Redeem** — after the window closes, `receipt.redeem()` pays out what you're owed. See [Redemption](#redemption).
+- **Redeem** — after the window closes, `receipt.redeem()` pays out what you're owed. See [Exercise and redemption](#exercise-and-redemption).
 
 ## How it works
 
-### The two tokens
+### Options as ERC20 tokens
 
-Writing an option means depositing collateral and receiving two ERC20 tokens back:
+An option on Greek is a pair of ERC20 tokens. Depositing collateral into the protocol mints both:
 
 ```
-           deposit collateral
-                   │
-                   ▼
- ┌──────────────┐      ┌──────────────┐
- │    Option    │      │   Receipt    |
- |              │◀....▶|              |
- │  (long side) │      │ (short side) │
- └──────────────┘      └──────────────┘
+                        ┌──────────────────┐
+  deposit collateral ─▶ │  Greek Protocol  │ ─▶  Option + Receipt
+                        └──────────────────┘
 ```
 
-The **Option** is the long side: the right to pay the strike and take the collateral. The **Receipt** is the short side: the claim on that collateral once the option expires or is exercised. The Receipt contract escrows every deposit.
-
-Both tokens transfer freely and use the collateral token's decimals. Minting is 1:1: one unit of collateral backs one Option and one Receipt.
-
-Names are generated from the option's parameters, `<prefix>-<collateral>-<consideration>-<strike>-<YYYY-MM-DD>`:
+The **Option** is the long side: the right to pay the strike and take the collateral. The **Receipt** is the short side: the claim on that collateral once the option is exercised or expires. Both are standard ERC20s — transfer, approve, and trade them like any other token. They use the collateral token's decimals, and names come from the option's parameters:
 
 ```
 OPTA-WETH-USDC-3000-2026-06-27     // American call
@@ -96,41 +87,22 @@ RCT-WETH-USDC-3000-2026-06-27      // Receipt, American
 RCTE-WETH-USDC-3000-2026-06-27     // Receipt, European
 ```
 
-### Minting
+### Mint and burn
 
-Approve the factory once; one approval covers every option it creates:
-
-```solidity
-IERC20(collateral).approve(address(factory), type(uint256).max);
-
-option.mint(1e18);              // 1 collateral in, 1 Option + 1 Receipt out
-option.mint(recipient, 1e18);   // or mint to someone else
-```
-
-The Receipt contract pulls the deposit through the factory and holds it; you receive Option and Receipt tokens 1:1. Fee-on-transfer tokens are rejected (`FeeOnTransferNotSupported`), and rebasing tokens must not be used as collateral.
-
-### Permissions
-
-The factory keeps one permission bitmask per (owner, operator) pair. A single grant covers every option the factory creates:
+Collateral goes in, an Option + Receipt pair comes out. Burning the pair reverses it:
 
 ```solidity
-// Bits from library Perm:
-// TRANSFER = 1, MINT = 2, BURN = 4, REDEEM = 8, EXERCISE = 16
-factory.setPermissions(operator, mask);   // overwrite the operator's mask
-factory.addPermissions(operator, mask);   // OR new bits into the existing mask
+IERC20(collateral).approve(address(factory), type(uint256).max);   // once
+
+option.mint(1e18);   // 1 collateral in → 1 Option + 1 Receipt out
+option.burn(1e18);   // 1 Option + 1 Receipt in → 1 collateral back
 ```
 
-- **`TRANSFER`** — the operator can move your option tokens without per-option ERC20 allowances. This is full custody of your long positions.
-- **`MINT`** — the operator can mint against your collateral allowance ([auto-mint](#auto-mint--auto-burn)).
-- **`BURN`** — the operator's transfers into you pair-burn against your Receipts ([auto-burn](#auto-mint--auto-burn)).
-- **`REDEEM`** — the operator can trigger [redemption](#redemption) for you. Payout always goes to you.
-- **`EXERCISE`** — the operator can [exercise](#exercise) your options, paying the strike and **receiving the collateral**. Only for a trusted keeper.
+Burning works any time up to the exercise deadline. Fee-on-transfer tokens are rejected (`FeeOnTransferNotSupported`); do not use rebasing tokens as collateral.
 
-The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`). Revoke with `factory.setPermissions(operator, 0)`.
+#### Auto mint & burn via permissions
 
-### Auto-mint & auto-burn
-
-The `MINT` and `BURN` bits of the [permission grant](#permissions) mint and unwind inside the transfer itself — the Setup grant (mask `7`) already switches them on.
+Grant the `MINT` and `BURN` [permissions](#permissions-and-security) to your swap contract and minting and burning happen inside the transfer itself — the Setup grant (mask `7`) already includes them.
 
 **Selling without minting** — the writer holds collateral but no options:
 
@@ -148,28 +120,50 @@ option.transferFrom(holder, writer, 3e18);
 
 The incoming 3e18 Option meets the writer's Receipts, 3e18 pairs burn, and 3e18 collateral returns to the writer.
 
-### Exercise
+### Permissions and security
 
-Exercising is a swap: pay `strike` units of the **consideration** token, receive one unit of the **collateral** token. A WETH call at $3,000 swaps 3,000 USDC for 1 WETH.
+The factory keeps one permission bitmask per (owner, operator) pair; a single grant covers every option the factory creates:
 
 ```solidity
-IERC20(consideration).approve(address(factory), type(uint256).max);
+// Bits from library Perm:
+// TRANSFER = 1, MINT = 2, BURN = 4, REDEEM = 8, EXERCISE = 16
+factory.setPermissions(operator, mask);   // overwrite the operator's mask
+factory.addPermissions(operator, mask);   // OR new bits into the existing mask
+```
 
+- **`TRANSFER`** — treat exactly like an ERC20 approval: grant only to trusted parties such as swap contracts.
+- **`MINT` / `BURN`** — trusted parties only, ones that won't mint against your collateral and steal the tokens.
+- **`REDEEM`** — less risky: the operator calls redeem for you and the assets always go to you.
+- **`EXERCISE`** — grant only to parties that will exercise in good faith: the operator pays the strike, receives the collateral, and settles your share with you off-chain.
+
+<img src="/img/permissions.svg" alt="Permission grants" />
+
+Your favorite LLM may raise concerns about attack vectors in this protocol. Rest assured: follow the same practices you use to protect your spot tokens — as in the diagram — and your assets here are protected the same way. Never grant permissions to anyone you would not normally trust with your tokens. An LLM might also raise malicious collateral tokens. If someone creates an option on a malicious token, that's fine, because you will never interact with it: 1) you will not be swapping those tokens, 2) you never granted anyone permissions to mint options on them, and 3) a trusted swapping party (Bebop) will not deal in them. The two enablements — `token.approve(factory, ...)` and `factory.setPermissions(bebop, TRANSFER | MINT | BURN)` — are all you need. If there's another party you want to enable, that risk is on you.
+
+### Exercise and redemption
+
+**Exercise** — the holder pays `strike` in consideration and receives the collateral:
+
+```solidity
+IERC20(consideration).approve(address(factory), type(uint256).max);   // once
 option.exercise(1e18);   // burn 1 Option, pay 1 × strike, receive 1 collateral
 ```
 
-Every option has an `expirationDate` and an `exerciseDeadline` (expiry plus the option's `windowSeconds`). When you can exercise depends on the flavour:
+**Redemption** — the writer's exit. Exercised options leave consideration in the pool; unexercised options leave collateral. `receipt.redeem()` burns the writer's Receipts and pays out of that pool, consideration first (strike × amount), then collateral 1:1:
 
-| | Before expiry | In the window | After the deadline |
-|---|---|:---:|:---:|
-| **American** | ✅ | --- | --- |
-| **European** | --- | ✅ | --- |
+```solidity
+receipt.redeem();   // or redeem(amount)
+```
 
-American options typically use `windowSeconds = 0`, so their deadline is expiration itself; European options always have a window. Transfers and pair-burns stop at the deadline too. An option never exercised lapses worthless; `option.expire(holder, amount)` burns the dead tokens if you want the wallet clean.
+#### European
 
-:::note Letting someone exercise for you
-If you won't be watching the market, grant a keeper the `EXERCISE` permission — `factory.addPermissions(keeper, 16)` — and it can call `option.exerciseFor(holder, amount)` for you. The keeper pays the strike and receives the collateral, so grant it only to a party that settles with you off-chain.
-:::
+Exercise only during the exercise window, from expiration to the deadline. Redeem consideration as exercises happen; redeem collateral after the window closes.
+
+#### American
+
+Exercise any time prior to expiration. Redeem consideration after exercises; redeem collateral after expiration.
+
+Nothing exercises for you — an option never exercised lapses worthless (`option.expire(holder, amount)` cleans up the dead tokens). A keeper granted `EXERCISE` can exercise on your behalf; a keeper granted `REDEEM` can trigger redemption, with payout always to you.
 
 ### Calls and puts
 
@@ -182,27 +176,7 @@ A put is a call on the swapped pair — collateral and consideration trade place
 
 Minting a call deposits WETH; minting a put deposits USDC. Exercising a put pays WETH and receives USDC — the same swap, reversed.
 
-### Pair-burn
-
-If you hold matched Option and Receipt of the same series, burn them together and take the collateral back:
-
-```solidity
-option.burn(amount);
-```
-
-Works any time up to the deadline. Buying back options you wrote does this automatically ([auto-burn](#auto-mint--auto-burn)).
-
-### Redemption
-
-After the window closes, Receipt holders redeem:
-
-```solidity
-receipt.redeem();   // or redeem(amount)
-```
-
-Redemption pays **consideration first** (strike × amount, from exercised options), then **collateral 1:1** for the rest — first come, first served on the consideration. Timing only changes which token you're paid in, not the value.
-
-A keeper can trigger redemption for you via the `REDEEM` permission (`factory.addPermissions(keeper, 8)`). Payout always goes to the holder, never the keeper.
+*TODO: puts are backed by USDC (or similar), so the strike denomination is inverted and the units read strangely. Introduce the concept of a "block" of put options that, when exercised, needs 1 ETH-equivalent.*
 
 ## Deployed addresses
 
