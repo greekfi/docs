@@ -17,15 +17,43 @@ const SRC = path.join(ROOT, "foundry", "docs", "src", "contracts");
 const OUT_FILE = path.join(ROOT, "docs", "docs", "api.md");
 
 // What to include, grouped for section headers. `from` is relative to forge-doc's
-// `src/contracts/` output.
+// `src/contracts/` output. `desc` is the one-line lead under the contract heading
+// (the forge-doc contract preamble is dropped wholesale — it's implementation
+// narrative, not interface). `drop` lists members that are deploy/factory plumbing
+// users never call.
 const SECTIONS = [
   {
     label: "Core Contracts",
     entries: [
-      { from: "Option.sol/contract.Option.md", title: "Option" },
-      { from: "Receipt.sol/contract.Receipt.md", title: "Receipt" },
-      { from: "Factory.sol/contract.Factory.md", title: "Factory" },
-      { from: "Permissions.sol/library.Perm.md", title: "Perm" },
+      {
+        from: "Option.sol/contract.Option.md",
+        title: "Option",
+        desc: "The long side. Mint, transfer, exercise, and pair-burn.",
+        drop: ["constructor", "init", "FACTORY"],
+      },
+      {
+        from: "Receipt.sol/contract.Receipt.md",
+        title: "Receipt",
+        desc: "The short side. Escrows the collateral; redeem after the window.",
+        drop: ["constructor", "mint", "burn", "exercise"],
+      },
+      {
+        from: "Factory.sol/contract.Factory.md",
+        title: "Factory",
+        desc: "Creates options; holds token approvals and permission grants.",
+        drop: [
+          "constructor",
+          "transferFrom",
+          "RECEIPT_CLONE",
+          "OPTION_CLONE",
+          "optionInitCodeHash",
+          "receiptInitCodeHash",
+          "addressOfOption2",
+          "addressOfReceipt2",
+          "createOption2",
+          "createOptions2",
+        ],
+      },
     ],
   },
 ];
@@ -62,30 +90,50 @@ function stripFirstH1(md) {
 //   3 errors
 // Each member is a `### name` block whose first ```solidity fence holds its declaration; the
 // contract's leading prose / `### Subsection` description blocks (no fence) are kept up front.
-function renderMembers(md) {
+function renderMembers(md, drop = []) {
+  // The contract preamble (Inherits/Title/Author metadata + contract-level NatSpec
+  // narrative) is discarded: the reference documents the callable surface only, and
+  // the concept docs carry the narrative.
   const noGroups = md.replace(/^## .*$\n?/gm, ""); // strip forge's group headers
   const chunks = noGroups.split(/(?=^### )/m);
-  const preamble = [];
   const members = [];
   chunks.forEach((chunk, i) => {
-    if (i === 0 || !chunk.startsWith("### ")) return preamble.push(chunk);
-    const fence = chunk.match(/```solidity\n([\s\S]*?)```/);
-    if (!fence) return preamble.push(chunk); // description subsection, not a member
-    const sig = fence[1];
-    if (/\bmodifier\b/.test(sig) || /\b(internal|private)\b/.test(sig)) return; // drop
+    if (i === 0 || !chunk.startsWith("### ")) return; // preamble / description prose — dropped
+    const heading = chunk.match(/^### (\S+)/m)?.[1];
+    if (drop.includes(heading)) return; // deploy/factory plumbing
+    // A member chunk may hold several ```solidity fences: NatSpec usage examples plus
+    // the actual declaration. Find the declaration (the fence declaring `heading`);
+    // example fences and the prose introducing them are stripped — the reference
+    // documents the surface, not keeper recipes.
+    const esc = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const fences = [...chunk.matchAll(/```solidity\n([\s\S]*?)```/g)];
+    if (!fences.length) return; // description subsection, not a member — dropped
+    const decl =
+      fences.find((f) => new RegExp(`(function|event|error|modifier|constructor)\\s+${esc}\\s*\\(`).test(f[1])) ??
+      fences.find((f) => new RegExp(`\\b${esc}\\b`).test(f[1]) && f[1].trim().split("\n").length <= 3) ??
+      fences[0];
+    const sig = decl[1];
+    if (/\bmodifier\b/.test(sig) || /\b(internal|private)\b/.test(sig)) return; // not user-facing
+    let desc = chunk.slice(chunk.indexOf("\n") + 1, decl.index).replace(/```solidity\n[\s\S]*?```/g, "");
+    // A worked example's intro line and any commentary after it belong to the stripped
+    // example code, not the declaration — cut the description off there.
+    const exampleAt = desc.search(/^\s*Example\b/im);
+    if (exampleAt !== -1) desc = desc.slice(0, exampleAt);
+    desc = desc.trimEnd();
+    const tail = chunk.slice(decl.index + decl[0].length);
     const fn = sig.match(/\bfunction\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
-    const text = fn ? chunk.replace(/^### .*$/m, `### ${fn[1]}(${fn[2].trim()})`) : chunk;
+    const headingLine = fn ? `### ${fn[1]}(${fn[2].trim()})` : `### ${heading}`;
+    const text = `${headingLine}\n\n${desc}\n\n${decl[0]}\n${tail}`;
     let rank;
     if (/\bevent\b/.test(sig)) rank = 2;
     else if (/\berror\b/.test(sig)) rank = 3;
-    else if (/\bconstructor\b/.test(sig)) rank = 1;
     else if (/\bfunction\b/.test(sig)) rank = /\b(view|pure)\b/.test(sig) ? 0 : 1;
     else rank = 0; // public state var / constant getter (read)
     members.push({ rank, i, text });
   });
   members.sort((a, b) => a.rank - b.rank || a.i - b.i); // stable: keep source order within a bucket
   return {
-    functions: preamble.join("") + members.filter((m) => m.rank <= 1).map((m) => m.text).join(""),
+    functions: members.filter((m) => m.rank <= 1).map((m) => m.text).join(""),
     eventsErrors: members.filter((m) => m.rank >= 2).map((m) => m.text).join(""),
   };
 }
@@ -175,7 +223,7 @@ async function loadEntry(entry) {
   // Filter to the public surface, sort read-first. Members (forge H3) shift to H4 so they sit
   // inside each contract's collapsible <details> WITHOUT entering the right-hand TOC — that TOC
   // shows only the contract H2 headings, restoring the per-contract organisation.
-  const { functions, eventsErrors } = renderMembers(stripFirstH1(md));
+  const { functions, eventsErrors } = renderMembers(stripFirstH1(md), entry.drop);
   const post = (s) => shiftHeadings(escapeJsxReferences(rewriteLinks(s)), 1);
   return { functions: post(functions), eventsErrors: post(eventsErrors) };
 }
@@ -209,6 +257,8 @@ async function main() {
       const { functions, eventsErrors } = await loadEntry(entry);
       chunks.push(
         `## ${entry.title}`,
+        "",
+        entry.desc ?? "",
         "",
         "<details>",
         "<summary>Functions</summary>",

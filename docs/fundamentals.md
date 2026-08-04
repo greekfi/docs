@@ -66,7 +66,7 @@ factory.addPermissions(operator, mask);   // OR new bits into the existing mask
 - **`REDEEM`** — the operator can trigger redemption for you. Payout always goes to you.
 - **`EXERCISE`** — the operator can exercise your options, paying the strike and **receiving the collateral**. Only for a trusted keeper.
 
-The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`). Revoke with `factory.setPermissions(operator, 0)`. See [Perm](./api#perm) for the per-bit details.
+The RFQ settlement contract gets `TRANSFER | MINT | BURN` (mask `7`). Revoke with `factory.setPermissions(operator, 0)`.
 
 ## Auto-mint & auto-burn
 

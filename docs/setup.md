@@ -52,7 +52,7 @@ IERC20(weth).approve(address(factory), type(uint256).max);
 factory.setPermissions(bebopSettlement, 7);
 ```
 
-This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Perm](./api#perm) for the per-bit details.
+This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions](./fundamentals#permissions) for all five bits.
 
 **3. Sell.** Quote through the RFQ and the sale settles itself: your collateral is pulled, the option mints, and the buyer pays you — one transaction. You now hold Receipt tokens: your short position and claim on the escrowed collateral.
 
