@@ -1,114 +1,69 @@
 ---
 title: Setup
-sidebar_position: 4
+sidebar_position: 1
 ---
 
 # Setup
 
-Greek options are plain ERC20 tokens, traded through [Bebop](https://bebop.xyz)'s RFQ system and settled as ordinary ERC20 transfers on-chain. Before your wallet can trade, exercise, or redeem, a handful of approvals have to be in place.
+Greek options are plain ERC20 tokens traded through [Bebop](https://bebop.xyz)'s RFQ system. There are two ways in. A **holder** buys options with cash and may exercise them. A **writer** sells options against collateral and collects the premium. Each side needs a couple of one-time approvals; here is each path start to finish.
 
-Which approvals you need depend on which side of the trade you're on. A **holder** buys options with cash and may exercise them; a **writer** sells options against collateral and redeems the collateral afterwards.
+## I'm a holder: buy, then exercise
 
-Use this page as the checklist; follow the links for the mechanics behind each row.
-
-✅ required · --- not applicable
-
-| Step | Read | Holder | Writer |
-|---|---|:---:|:---:|
-| Approve cash (USDC) to swap on Bebop's settlement contract | [Bebop Approvals](#bebop-approvals) | ✅ | ✅ |
-| Permit Bebop's settlement contract on the factory - transfer, mint on sale, unwind on buy-back | [factory.setPermissions](#factorysetpermissions) | ✅ | ✅ |
-| Approve collateral  WETH [Call] to write Options | [weth.approve](#tokenapprove) | --- | ✅ |
-| Approve collateral  USDC [Put] to write Options | [usdc.approve](#tokenapprove) | --- | ✅ |
-| Approve consideration  WETH [Put] to exercise | [weth.approve](#tokenapprove) | ✅ | --- |
-| Approve consideration  USDC [Call] to exercise | [usdc.approve](#tokenapprove) | ✅ | --- |
-| Exercise before the settlement deadline | [option.exercise](#optionexercise) | ✅ | --- |
-| Redeem after the settlement window closes | [receipt.redeem](#receiptredeem) | --- | ✅ |
-
-## Bebop Approvals
-
-Bebop's settlement contract pulls both legs of the swap with a standard ERC20 `transferFrom`, so whatever you're giving up - cash if you're buying, option tokens if you're selling - needs an allowance to Bebop's `approvalTarget`.
+**1. Approve your cash to Bebop.** Bebop's settlement contract pulls the cash leg with a standard `transferFrom`:
 
 ```solidity
 IERC20(usdc).approve(bebopContract, type(uint256).max);
 ```
 
-The `bebopContract` is `0xbbbbbBB520d69a9775E85b458C58c648259FAD5F`. The quote response carries the settlement target for the chain you're on, so prefer reading it off the quote over pinning a constant. See Bebop's [token approvals](https://docs.bebop.xyz/core-concepts/token-approvals) for more info.
+The quote response carries the settlement address for your chain (`0xbbbbbBB520d69a9775E85b458C58c648259FAD5F`), so prefer reading it off the quote. See [Trading](./trading) for the quote flow.
 
-**Note** - for **option tokens** specifically: [`factory.setPermissions`](#factorysetpermissions) (see below) authorises Bebop across every option the factory has ever created, similar to ERC1155, reducing excessive redundancy.
+**2. Buy.** Request a quote, sign, done — the option tokens arrive in your wallet.
 
-## factory.setPermissions
+**3. Exercise if it's in the money.** You pay the strike in consideration tokens and receive the collateral, so approve the consideration to the factory once (USDC for a call, WETH for a put):
 
-Greek options are minted per strike × expiry × underlying, so approving each one individually doesn't scale. The factory keeps a permission bitmask per (owner, operator) pair instead - one grant covers every option it creates. The trading grant is one call:
+```solidity
+IERC20(usdc).approve(address(factory), type(uint256).max);
+option.exercise(amount);   // or exercise() for your whole balance
+```
+
+Exercise is manual — there is no oracle, and nothing exercises for you. If you don't act before the deadline, the value is forfeited. When you can exercise depends on the flavour:
+
+| | Before expiry | In the window | After the deadline |
+|---|---|:---:|:---:|
+| **American** | ✅ | --- | --- |
+| **European** | --- | ✅ | --- |
+
+See [Settlement](./settlement#exercise) for the window mechanics.
+
+**Selling back instead?** Grant Bebop's settlement contract once on the factory — `factory.setPermissions(bebopSettlement, 7)` — and it can move your option tokens with no per-option approvals. Details in the writer path below.
+
+## I'm a writer: sell, then exit
+
+**1. Approve your collateral to the factory.** The factory is the single contract that pulls tokens from you — WETH to write calls, USDC to write puts:
+
+```solidity
+IERC20(weth).approve(address(factory), type(uint256).max);
+```
+
+**2. Permit Bebop's settlement contract on the factory.** One call, one mask:
 
 ```solidity
 // TRANSFER | MINT | BURN = 7
 factory.setPermissions(bebopSettlement, 7);
 ```
 
-- **`TRANSFER`** - settlement can move your option tokens, no per-option ERC20 allowance needed.
-- **`MINT`** - selling an option you haven't minted auto-mints it inside the transfer, pulling collateral from [token.approve](#tokenapprove).
-- **`BURN`** - buying an option back while you hold the matching Receipt pair-burns them and returns your collateral.
+This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Perm](./api#perm) for the per-bit details.
 
-The grant never lets settlement exercise your options or trigger your redemptions. Revoke with `factory.setPermissions(bebopSettlement, 0)`. See [Perm](./api#perm) for the per-bit details.
+**3. Sell.** Quote through the RFQ and the sale settles itself: your collateral is pulled, the option mints, and the buyer pays you — one transaction. You now hold Receipt tokens: your short position and claim on the escrowed collateral.
 
-## token.approve
+**4. Exit the short.** Two ways out:
 
-Anything the protocol pulls from you is pulled by the **factory**, which is the single transfer authority:
-
-- collateral when you **write**
-- consideration when you **exercise**
-
-It's a standard ERC20 allowance to the factory:
+- **Buy back** — options you buy back pair-burn against your Receipts on arrival and your collateral returns immediately.
+- **Redeem** — after the exercise window closes, `receipt.redeem()` pays out what you're owed: consideration first (strike × amount, from holders who exercised), then collateral 1:1 for the rest.
 
 ```solidity
-IERC20(token).approve(address(factory), type(uint256).max);
+receipt.redeem();          // your whole balance
+receipt.redeem(1e18);      // a specific amount
 ```
 
-That allowance is the only gate - Receipt contracts pull through the factory against it. Approving the factory once covers every option it creates - you never approve an individual Option or Receipt.
-
-Which token goes here depends on the leg and the flavour:
-
-| | Collateral (to write) | Consideration (to exercise) |
-|---|---|---|
-| **Call** | WETH | USDC |
-| **Put** | USDC | WETH |
-
-A put is the mirror of a call: the collateral and consideration swap places. See [Fundamentals](./fundamentals#approvals) for the full mint path.
-
-:::note
-Fee-on-transfer tokens are rejected outright - the factory checks the balance delta and reverts with `FeeOnTransferNotSupported`. Rebasing tokens are unsupported and have no on-chain guard; don't use them as collateral.
-:::
-
-## option.exercise
-
-```solidity
-option.exercise();            // your whole balance
-option.exercise(1e18);        // a specific amount
-```
-
-You pay the consideration and receive the collateral, which means the consideration approval must be in place first. Exercise is **manual and time-gated** - there's no oracle and no on-chain price check, so nothing exercises on your behalf. If an option is in-the-money and you don't act, you forfeit that value when the window closes.
-
-When you can exercise depends on the flavour:
-
-| | Before expiry | In the window | After the deadline |
-|---|---|---|---|
-| **American** | ✅ | --- | --- |
-| **European** | --- | ✅ | --- |
-
-Exercise happens before expiration for American, and during the window after expiration for European. See [Settlement](./settlement#exercise).
-
-## receipt.redeem
-
-```solidity
-receipt.redeem();             // your whole balance
-receipt.redeem(1e18);         // a specific amount
-```
-
-Redemption is how a writer gets paid out. It pays **consideration first (strike x amount), then collateral 1:1** - no pro-rata:
-
-- The **consideration leg** has no window gate. It's callable any time the pool can cover it, and it pays out the premium accumulated from holders who exercised against the series.
-- The **collateral leg** covers whatever the consideration pool couldn't, and only unlocks **strictly after** `exerciseDeadline`.
-
-This is first-come-first-served by design: an early redeemer takes the consideration, leaving later ones with collateral. You're owed the same amount either way, since receipts back 1:1. What changes is which asset you're paid in, and that depends on when you redeem rather than on what you're owed.
-
-If you want out before the deadline instead, buy the option back and pair-burn it rather than waiting to redeem. See [Short-side redemption](./settlement#short-side-redemption-after-the-window).
+Redemption is first-come-first-served on the consideration pool: an early redeemer is paid in consideration, later ones in collateral. The amount you're owed is the same either way. See [Settlement](./settlement#short-side-redemption-after-the-window).
