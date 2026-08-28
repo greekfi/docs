@@ -51,13 +51,30 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       colorMode: {
-        respectPrefersColorScheme: true,
+        defaultMode: "light",
+        respectPrefersColorScheme: false,
+        disableSwitch: true,
       },
       navbar: {
         title: "Greek",
+        logo: {
+          alt: "Greek helmet",
+          src: "img/greek-helmet.svg",
+        },
+        hideOnScroll: false,
         items: [
           {
+            href: "https://greek.fi",
+            label: "Greek.fi",
+            position: "right",
+          },
+          {
             href: "https://github.com/greekfi/protocol",
+            label: "Protocol",
+            position: "right",
+          },
+          {
+            href: "https://github.com/greekfi/docs",
             label: "GitHub",
             position: "right",
           },
@@ -66,6 +83,13 @@ const config = {
       footer: {
         style: "dark",
         links: [
+          {
+            title: "Greek",
+            items: [
+              { label: "Greek.fi", href: "https://greek.fi" },
+              { label: "Documentation", to: "/" },
+            ],
+          },
           {
             title: "Code",
             items: [
