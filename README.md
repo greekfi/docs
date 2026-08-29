@@ -1,41 +1,49 @@
-# Website
+# Greek documentation
 
-This website is built using [Docusaurus](https://docusaurus.io/), a modern static website generator.
+The public documentation site for the Greek options protocol, built with [Docusaurus](https://docusaurus.io/).
 
-## Installation
-
-```bash
-yarn
-```
-
-## Local Development
+## Install
 
 ```bash
-yarn start
+npm install
 ```
 
-This command starts a local development server and opens up a browser window. Most changes are reflected live without having to restart the server.
+## Run locally
+
+```bash
+npm start
+```
+
+This starts the local development server and opens the site in a browser. Most changes appear without a restart.
+
+## Generate the API reference
+
+```bash
+npm run gen-reference
+```
+
+The generator replaces the API reference in `docs/index.md` with content from the contracts' NatSpec documentation. Do not edit the generated section by hand.
 
 ## Build
 
 ```bash
-yarn build
+npm run build
 ```
 
-This command generates static content into the `build` directory and can be served using any static contents hosting service.
+This generates the static site in `build`.
 
 ## Deployment
 
-Using SSH:
+With SSH:
 
 ```bash
-USE_SSH=true yarn deploy
+USE_SSH=true npm run deploy
 ```
 
-Not using SSH:
+Without SSH:
 
 ```bash
-GIT_USER=<Your GitHub username> yarn deploy
+GIT_USER=<your-github-username> npm run deploy
 ```
 
-If you are using GitHub pages for hosting, this command is a convenient way to build the website and push to the `gh-pages` branch.
+The deploy command builds the site and pushes it to the `gh-pages` branch.
