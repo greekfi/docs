@@ -1,45 +1,187 @@
-/**
- * Greek.fi docs — standard Docusaurus theme, system fonts, one accent color.
- */
+/* Greek brand system — see protocol/brand/BRAND.md. */
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&display=swap");
 
 :root {
-  --ifm-color-primary: #2f50ff;
-  --ifm-color-primary-dark: #1638f0;
-  --ifm-color-primary-darker: #1234e2;
-  --ifm-color-primary-darkest: #0f2bba;
-  --ifm-color-primary-light: #4a68ff;
-  --ifm-color-primary-lighter: #5c77ff;
-  --ifm-color-primary-lightest: #8a9dff;
-
-  --ifm-code-font-size: 90%;
-  --docusaurus-highlighted-code-line-bg: rgba(47, 80, 255, 0.08);
+  --greek-navy: #0d2c54;
+  --greek-paper: #f9f6f0;
+  --greek-crimson: #ff4600;
+  --greek-amber: #ffb400;
+  --greek-sky: #00a6ed;
+  --greek-lime: #7fb800;
+  --ifm-color-primary: var(--greek-crimson);
+  --ifm-color-primary-dark: #e63f00;
+  --ifm-color-primary-darker: #d93b00;
+  --ifm-color-primary-darkest: #b83200;
+  --ifm-color-primary-light: #ff5c1f;
+  --ifm-color-primary-lighter: #ff6a33;
+  --ifm-color-primary-lightest: #ff8f66;
+  --ifm-background-color: var(--greek-paper);
+  --ifm-background-surface-color: var(--greek-paper);
+  --ifm-font-color-base: var(--greek-navy);
+  --ifm-font-color-secondary: color-mix(in srgb, var(--greek-navy) 76%, var(--greek-paper));
+  --ifm-font-family-base: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --ifm-font-family-monospace: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --ifm-heading-font-family: var(--ifm-font-family-base);
+  --ifm-heading-font-weight: 500;
+  --ifm-heading-line-height: 1.08;
+  --ifm-heading-letter-spacing: -0.02em;
+  --ifm-line-height-base: 1.6;
+  --ifm-navbar-height: 5rem;
+  --ifm-navbar-background-color: var(--greek-paper);
+  --ifm-navbar-shadow: none;
+  --ifm-footer-background-color: var(--greek-navy);
+  --ifm-footer-color: var(--greek-paper);
+  --ifm-code-font-size: 0.875rem;
+  --ifm-code-border-radius: 0;
+  --ifm-global-radius: 0;
+  --ifm-button-border-radius: 0;
+  --ifm-alert-border-radius: 0;
+  --docusaurus-highlighted-code-line-bg: rgb(255 180 0 / 18%);
 }
 
+/* Docs are a paper surface. Keep that treatment even if a visitor previously
+   selected Docusaurus's dark mode before the branded shell was introduced. */
 [data-theme="dark"] {
-  --ifm-color-primary: #7d92ff;
-  --ifm-color-primary-dark: #5c77ff;
-  --ifm-color-primary-darker: #4a68ff;
-  --ifm-color-primary-darkest: #2c4cff;
-  --ifm-color-primary-light: #8fa1ff;
-  --ifm-color-primary-lighter: #a3b2ff;
-  --ifm-color-primary-lightest: #b4c0ff;
-
-  --docusaurus-highlighted-code-line-bg: rgba(125, 146, 255, 0.15);
+  --ifm-color-primary: var(--greek-crimson);
+  --ifm-color-primary-dark: #e63f00;
+  --ifm-color-primary-darker: #d93b00;
+  --ifm-color-primary-darkest: #b83200;
+  --ifm-color-primary-light: #ff5c1f;
+  --ifm-color-primary-lighter: #ff6a33;
+  --ifm-color-primary-lightest: #ff8f66;
+  --ifm-background-color: var(--greek-paper);
+  --ifm-background-surface-color: var(--greek-paper);
+  --ifm-font-color-base: var(--greek-navy);
+  --ifm-font-color-secondary: color-mix(in srgb, var(--greek-navy) 76%, var(--greek-paper));
+  --ifm-navbar-background-color: var(--greek-paper);
+  --ifm-toc-border-color: rgb(13 44 84 / 24%);
+  --ifm-hr-border-color: rgb(13 44 84 / 24%);
+  --docusaurus-highlighted-code-line-bg: rgb(255 180 0 / 18%);
 }
 
-/* Diagrams exported from draw.io: keep a light background in both themes. */
+html { background: var(--ifm-background-color); }
+body { font-size: 1rem; }
+
+.navbar {
+  border-bottom: 2px solid var(--greek-navy);
+  padding: 0 1.5rem;
+}
+
+.navbar__inner, .footer__links, .footer__bottom { max-width: 1120px; margin-inline: auto; width: 100%; }
+.navbar__brand { gap: 0.65rem; }
+.navbar__logo { height: 2.35rem; width: auto; margin-right: 0; }
+
+.navbar__title {
+  color: var(--greek-navy);
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+
+.navbar__item, .navbar__link {
+  color: var(--greek-navy);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.navbar__link:hover, .navbar__link--active { color: var(--greek-crimson); }
+
+.main-wrapper { min-height: calc(100vh - var(--ifm-navbar-height)); }
+.container { max-width: 1120px; }
+.docItemContainer { max-width: 760px; padding-top: 4.5rem; padding-bottom: 6rem; }
+
+.markdown > h1:first-child {
+  color: var(--greek-navy);
+  font-size: clamp(2.8rem, 5vw, 4.4rem);
+  margin-bottom: 2rem;
+}
+
+.markdown h2 {
+  border-top: 2px solid var(--greek-navy);
+  color: var(--greek-navy);
+  font-size: clamp(2rem, 4vw, 3.1rem);
+  margin-top: 5rem;
+  padding-top: 1.25rem;
+}
+
+.markdown h3 { color: var(--greek-navy); font-size: 1.45rem; margin-top: 2.6rem; }
+.markdown a { font-weight: 500; text-decoration-thickness: 2px; text-underline-offset: 0.18em; }
+.markdown p, .markdown li { max-width: 70ch; }
+
+.markdown blockquote {
+  border-left: 4px solid var(--greek-sky);
+  color: inherit;
+  padding: 0.35rem 1.25rem;
+}
+
+.markdown code {
+  background: rgb(13 44 84 / 9%);
+  border: 1px solid rgb(13 44 84 / 22%);
+  color: inherit;
+  padding: 0.12em 0.3em;
+}
+
+div[class*="codeBlockContainer"] { box-shadow: none; }
+pre { border: 2px solid var(--greek-navy); border-radius: 0; }
+
+table { display: table; width: 100%; }
+table th {
+  background: var(--greek-navy);
+  color: var(--greek-paper);
+  font-size: 0.77rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+table tr:nth-child(2n) { background: rgb(13 44 84 / 5%); }
+
+.theme-doc-toc-desktop {
+  border-left: 2px solid var(--greek-navy);
+  margin-top: 4.5rem;
+  padding-left: 1.25rem;
+}
+
+.table-of-contents { font-size: 0.8rem; }
+.table-of-contents__link { color: inherit; }
+.table-of-contents__link--active { color: var(--greek-crimson); font-weight: 600; }
+
+.markdown details.alert, .markdown details {
+  background: transparent;
+  border: 2px solid currentColor;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.markdown details summary { font-weight: 600; padding: 0.75rem 1rem; }
+
 img[src="/img/permissions.svg"] {
-  background: #f7f7f8;
-  border-radius: 8px;
+  background: var(--greek-paper);
+  border: 2px solid var(--greek-navy);
+  border-radius: 0;
   padding: 12px;
   max-width: 100%;
 }
 
-/* API reference: per-contract <details> blocks render as info "alerts" with a blue
-   fill. Drop the fill and keep a neutral border so they read as plain outlined
-   sections. */
-.markdown details.alert {
-  --ifm-alert-background-color: transparent;
-  background-color: transparent;
-  border: 1px solid var(--ifm-color-emphasis-300);
+.footer { border-top: 0; padding: 4rem 1.5rem 2rem; }
+.footer__title { color: var(--greek-amber); font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase; }
+.footer__link-item { color: var(--greek-paper); }
+.footer__link-item:hover { color: var(--greek-amber); }
+.footer__copyright { color: rgb(249 246 240 / 78%); }
+button, a { transition: color 160ms ease-in-out, background-color 160ms ease-in-out, border-color 160ms ease-in-out; }
+:focus-visible { outline: 3px solid var(--greek-sky); outline-offset: 3px; }
+
+@media (max-width: 996px) {
+  .docItemContainer { max-width: 760px; padding-top: 3rem; }
+  .navbar { padding-inline: 1rem; }
+  .navbar__item, .navbar__link { letter-spacing: 0.06em; }
+}
+
+@media (max-width: 576px) {
+  .navbar__title { font-size: 1.3rem; }
+  .markdown > h1:first-child { font-size: 2.7rem; }
+  .markdown h2 { font-size: 2rem; margin-top: 3.75rem; }
+  .docItemContainer { padding-inline: 0; }
+  .footer { padding-inline: 1.25rem; }
 }
