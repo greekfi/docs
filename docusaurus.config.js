@@ -69,12 +69,7 @@ const config = {
             position: "right",
           },
           {
-            href: "https://github.com/greekfi/protocol",
-            label: "Protocol",
-            position: "right",
-          },
-          {
-            href: "https://github.com/greekfi/docs",
+            href: "https://github.com/greekfi/greekfi",
             label: "GitHub",
             position: "right",
           },
@@ -93,8 +88,10 @@ const config = {
           {
             title: "Code",
             items: [
-              { label: "Protocol", href: "https://github.com/greekfi/protocol" },
-              { label: "Contracts", href: "https://github.com/greekfi/contracts" },
+              {
+                label: "Contracts",
+                href: "https://github.com/greekfi/contracts",
+              },
             ],
           },
         ],

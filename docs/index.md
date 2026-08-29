@@ -12,7 +12,7 @@ Every option is fully collateralized, works on any ERC20 pair at any strike and 
 
 - **[Setup](#setup)**; start here: the holder and writer paths, start to finish.
 - **[How It Works](#how-it-works)**; ERC20 option tokens, mint and burn, permissions, exercise and redemption.
-- **[Deployed Addresses](#deployed-addresses)**; the factory on every chain.
+- **[Deployed Addresses](#deployed-addresses)**; the factory on each supported chain.
 - **[API Reference](#api-reference)**; full contract surface, generated from the contracts.
 
 ## Setup
@@ -242,13 +242,7 @@ One factory per chain; the contract you approve and grant permissions on.
 | Network            | Chain ID | Factory |
 |--------------------|---------:|---------|
 | Ethereum (Mainnet) | 1        | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
-| Optimism           | 10       | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
-| HyperEVM           | 999      | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
-| Robinhood          | 4663     | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
-| Base               | 8453     | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
-| Arbitrum           | 42161    | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
 | Hemi               | 43111    | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
-| Hedera             | 295      | `0x20677001aFbAa8F28baebEa0b10bF96490Eb45ab` |
 
 Every option ever created is discoverable on-chain through the factory's `OptionCreated` event; see the [API Reference](#api-reference).
 
