@@ -1,0 +1,13 @@
+---
+description: Start all work branches from the latest origin/main
+alwaysApply: true
+---
+
+# Branch creation
+
+Before making changes on a new branch:
+
+1. Fetch `origin/main`.
+2. Create the branch from `origin/main`, never from the current local branch.
+
+Do not reuse a merged branch for new work.
