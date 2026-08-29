@@ -8,18 +8,18 @@ toc_max_heading_level: 3
 
 Greek turns options into plain ERC20 tokens. Writing an option locks collateral and mints two tokens: the **Option**, the right to exercise, and the **Receipt**, the claim on the locked collateral. Both transfer freely and trade like any other token; production trading runs through [Bebop](https://bebop.xyz)'s RFQ system.
 
-Every option is fully collateralized, works on any ERC20 pair at any strike and expiry, and comes in **American** and **European** flavours. There is no oracle and no protocol fee: the holder decides when to exercise, inside a time-gated window.
+Every option is fully collateralized, supports pairs of standard ERC20 tokens at any strike and expiry, and comes in **American** and **European** flavors. Fee-on-transfer and rebasing tokens are not supported. There is no oracle or protocol fee. The holder decides whether to exercise within the option's exercise window.
 
-- **[Setup](#setup)**; start here: the holder and writer paths, start to finish.
-- **[How It Works](#how-it-works)**; ERC20 option tokens, mint and burn, permissions, exercise and redemption.
-- **[Deployed Addresses](#deployed-addresses)**; the factory on each supported chain.
-- **[API Reference](#api-reference)**; full contract surface, generated from the contracts.
+- **[Setup](#setup).** Follow the holder or writer path from start to finish.
+- **[How it works](#how-it-works).** Understand the tokens, permissions, exercise, and redemption.
+- **[Deployed addresses](#deployed-addresses).** Find the factory on each supported chain.
+- **[API reference](#api-reference).** Read the contract interface generated from the contracts.
 
 ## Setup
 
 There are two ways in. A **holder** buys options with cash and may exercise them. A **writer** sells options against collateral and collects the premium. Each side needs a couple of one-time approvals; here is each path start to finish.
 
-### I'm a Holder: Buy, Then Exercise
+### Holder: buy, then exercise
 
 **1. Approve your cash to Bebop's settlement contract.**
 
@@ -29,7 +29,7 @@ IERC20(usdc).approve(bebopContract, type(uint256).max);
 
 Read the settlement address off the quote response's `approvalTarget`. See Bebop's [RFQ API](https://docs.bebop.xyz/rfq-api/introduction) for the quote flow.
 
-**2. Buy.** Request a quote, sign, done; the option tokens arrive in your wallet.
+**2. Buy.** Request and sign a quote. The option tokens arrive in your wallet after settlement.
 
 **3. Exercise if it's in the money.** Approve the consideration token to the factory once (USDC for a call, WETH for a put), then exercise:
 
@@ -38,13 +38,13 @@ IERC20(usdc).approve(address(factory), type(uint256).max);
 option.exercise(amount);   // or exercise() for your whole balance
 ```
 
-Nothing exercises for you: if you don't act before the deadline, the value is forfeited. American options exercise any time up to the deadline, European only in the window after expiration; see [Exercise and Redemption](#exercise-and-redemption).
+Nothing exercises for you. If you do not act before the deadline, the option expires worthless. American options can be exercised any time before the deadline. European options can be exercised only between expiration and the deadline. See [Exercise and redemption](#exercise-and-redemption).
 
 **Selling back instead?** Grant Bebop's settlement contract once on the factory: `factory.setPermissions(bebopSettlement, 7)`.
 
-### I'm a Writer: Sell, Then Exit
+### Writer: sell, then exit
 
-**1. Approve your collateral to the factory**; WETH to write calls, USDC to write puts:
+**1. Approve the factory to spend your collateral.** Use WETH to write calls and USDC to write puts:
 
 ```solidity
 IERC20(weth).approve(address(factory), type(uint256).max);
@@ -59,16 +59,16 @@ factory.setPermissions(bebopSettlement, 7);
 
 This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions and Security](#permissions-and-security) for all five bits.
 
-**3. Sell.** Quote through the RFQ. The sale pulls your collateral, mints the option, and pays you in one transaction; you now hold Receipt tokens (your short).
+**3. Sell.** Request a quote through the RFQ. In one transaction, the sale pulls your collateral, mints the option, and pays you. You now hold Receipt tokens representing your short position.
 
 **4. Exit the short.** Two ways out:
 
-- **Buy back**; options you buy back pair-burn against your Receipts on arrival and your collateral returns immediately.
-- **Redeem**; after the window closes, `receipt.redeem()` pays out what you're owed. See [Exercise and Redemption](#exercise-and-redemption).
+- **Buy back.** Options you buy back pair-burn against your Receipts on arrival, returning your collateral immediately.
+- **Redeem.** After the window closes, `receipt.redeem()` pays the amount owed to you. See [Exercise and redemption](#exercise-and-redemption).
 
-## How It Works
+## How it works
 
-### Options as ERC20 Tokens
+### Options as ERC20 tokens
 
 An option on Greek is a pair of ERC20 tokens. Depositing collateral into the protocol mints both:
 
@@ -87,7 +87,7 @@ RCT-WETH-USDC-3000-2026-06-27      // Receipt, American
 RCTE-WETH-USDC-3000-2026-06-27     // Receipt, European
 ```
 
-### Mint and Burn
+### Mint and burn
 
 Collateral goes in, an Option + Receipt pair comes out. Burning the pair reverses it:
 
@@ -100,11 +100,11 @@ option.burn(1e18);   // 1 Option + 1 Receipt in → 1 collateral back
 
 Burning works any time up to the exercise deadline. Fee-on-transfer tokens are rejected (`FeeOnTransferNotSupported`); do not use rebasing tokens as collateral.
 
-#### Auto Mint & Burn via Permissions
+#### Automatic minting and burning through permissions
 
 Grant the `MINT` and `BURN` [permissions](#permissions-and-security) to your swap contract and minting and burning happen inside the transfer itself; the Setup grant (mask `7`) already includes them.
 
-**Selling without minting**; the writer holds collateral but no options:
+**Selling without minting.** The writer holds collateral but no options:
 
 ```solidity
 option.transferFrom(writer, holder, 10e18);
@@ -112,7 +112,7 @@ option.transferFrom(writer, holder, 10e18);
 
 The writer's balance is 0, so the factory pulls 10e18 collateral, mints 10e18 Option + Receipt, and the transfer delivers the Options to the holder. The writer ends up short 10 Receipt.
 
-**Unwinding on receive**; a writer short 10 Receipt buys 3 options back:
+**Unwinding on receipt.** A writer who is short 10 Receipts buys 3 options back:
 
 ```solidity
 option.transferFrom(holder, writer, 3e18);
@@ -120,7 +120,7 @@ option.transferFrom(holder, writer, 3e18);
 
 The incoming 3e18 Option meets the writer's Receipts, 3e18 pairs burn, and 3e18 collateral returns to the writer.
 
-### Permissions and Security
+### Permissions and security
 
 The factory keeps one permission bitmask per (owner, operator) pair; a single grant covers every option the factory creates:
 
@@ -133,30 +133,30 @@ factory.addPermissions(operator, mask);   // OR new bits into the existing mask
 
 Every grant covers every option this factory has created or ever will create; there are no per-market grants. Revoke any grant with `factory.setPermissions(operator, 0)`; every change emits `PermissionsUpdated(owner, operator, mask)`, so grants are monitorable on-chain. Acting on your own position never needs a bit; the bits exist only to authorize *other* addresses.
 
-**`TRANSFER` (1)**; treat exactly like an ERC20 approval: grant only to trusted parties such as swap contracts.
+**`TRANSFER` (1).** Treat this exactly like an ERC20 approval. Grant it only to trusted parties such as swap contracts.
 
 - Gates one thing: `Option.transferFrom` skips the per-option ERC20 allowance when the caller holds this bit in the sender's mask.
 - The grantee can move any of your option tokens in any market. That is full custody of your longs: it can move them to itself and exercise them as their own holder, capturing your in-the-money value without ever holding `EXERCISE`.
 - It cannot touch your Receipt tokens (plain ERC20, no permission hook), your collateral allowance, or anything it hasn't first taken custody of.
 
-**`MINT` (2)**; trusted parties only, ones that won't mint against your collateral allowance.
+**`MINT` (2).** Grant this only to trusted parties that will not mint against your collateral allowance without authorization.
 
 - Gates `Option.mint(account, amount)` and the auto-mint leg of transfers (which reads the *sender's* mask).
 - The grantee can convert your entire factory collateral allowance into positions, in any market, at any strike: `token.approve(factory, X)` plus a `MINT` grant to A is functionally `token.approve(A, X)`. The minted Option + Receipt land in your account, not theirs, but paired with an ordinary ERC20 allowance on an option token the grantee can transfer more than you hold, auto-mint the deficit, and leave you a naked short.
 - On your own address, `MINT` switches on auto-mint for transfers you initiate: an oversize transfer no longer reverts with insufficient balance, it pulls collateral and opens a short for the difference.
 
-**`BURN` (4)**; safe on the value axis, timing is the grantee's.
+**`BURN` (4).** Proceeds return to you, but the grantee controls when the position is unwound.
 
 - Gates `Option.burn(account, amount)`, `Option.expire(holder, amount)`, and the auto-burn leg of transfers (which reads the *receiver's* mask for the transfer initiator).
 - The grantee can pair-burn your matched Option + Receipt (collateral returns to **you**, never to them), net options it delivers into you against your short, and burn your worthless expired longs.
 - The risk is timing, not theft: the grantee chooses the moment your hedge unwinds.
 
-**`REDEEM` (8)**; the low-stakes bit.
+**`REDEEM` (8).** The grantee controls the timing, but the payout always goes to you.
 
 - Gates `Receipt.redeemFor(holders)`; entries without the grant are skipped.
 - The grantee can trigger redemption of your Receipts; the payout always lands in your wallet. It chooses the timing, and therefore whether you settle into consideration or collateral.
 
-**`EXERCISE` (16)**; the highest-trust bit: grant only to parties that will exercise in good faith.
+**`EXERCISE` (16).** Grant this only to parties that will exercise in good faith.
 
 - Gates `Option.exerciseFor` (single and batch).
 - The grantee burns your options, pays the strike itself, and **receives the collateral**; you get nothing on-chain. Nothing in the contract forces it to pass your surplus back; that settlement happens off-chain or not at all.
@@ -164,27 +164,27 @@ Every grant covers every option this factory has created or ever will create; th
 
 <img src="/img/permissions.svg" alt="Permission grants" />
 
-Your favorite LLM may raise concerns about attack vectors in this protocol. Rest assured: follow the same practices you use to protect your spot tokens, as in the diagram, and your assets here are protected the same way. Never grant permissions to anyone you would not normally trust with your tokens. An LLM might also raise malicious collateral tokens. If someone creates an option on a malicious token, that's fine, because you will never interact with it: 1) you will not be swapping those tokens, 2) you never granted anyone permissions to mint options on them, and 3) a trusted swapping party (Bebop) will not deal in them. The two enablements, `token.approve(factory, ...)` and `factory.setPermissions(bebop, TRANSFER | MINT | BURN)`, are all you need. If there's another party you want to enable, that risk is on you.
+Treat protocol permissions with the same care as token approvals. Grant permissions only to verified contracts you trust. A permissionless market created with a malicious token cannot move your assets unless you interact with that market or authorize an operator to mint through your factory allowance. For Bebop settlement, verify the settlement address before granting `TRANSFER | MINT | BURN`. Review any other operator independently before granting it access.
 
-#### What the Protocol Cannot Do
+#### What the protocol cannot do
 
 - **Nothing is upgradeable or pausable.** No proxies anywhere: the Factory deploys the Option and Receipt templates in its own constructor, and there is no setter to swap them. Per-option instances are minimal clones of those templates.
-- **An option's terms can never change.** Strike, tokens, expiration, deadline, and flavour are baked into the Receipt clone's bytecode at creation; nothing about a live option is mutable.
+- **An option's terms can never change.** Strike, tokens, expiration, deadline, and flavor are baked into the Receipt clone's bytecode at creation. Nothing about a live option is mutable.
 - **The owner cannot touch user funds.** The factory owner's entire reach is `Receipt.sweep(token, to)`, and it reverts unless `totalSupply() == 0`; it can only ever move rounding dust after every position has exited. The owner cannot alter permissions, block creation, or spend anyone's allowance.
 - **No oracle.** There is no price feed, no `settle()`, and no on-chain price comparison anywhere in the contracts; settlement is purely time-gated.
 
-#### Your Risk With Zero Grants
+#### Your risk with zero grants
 
 If all you ever do is `token.approve(factory, X)`, no third party can move anything of yours. Only Receipt contracts registered by the factory can pull that allowance, and only through calls you make yourself: `Option.mint(account, amount)` reverts without the `MINT` grant, `exerciseFor` reverts without `EXERCISE`, `redeemFor` skips holders who never granted `REDEEM`, and your option tokens move only with an ordinary ERC20 allowance.
 
-#### The Grants That Can Hurt You
+#### Grants that can put funds at risk
 
 - **`EXERCISE` to the wrong party.** The grantee can exercise your in-the-money options at any time: they pay the strike, they receive the collateral, and you get nothing on-chain. Grant it only to a keeper that provably settles your share back to you.
 - **`MINT` to the wrong party.** `token.approve(factory, X)` plus a `MINT` grant equals `token.approve(grantee, X)`: the grantee can open shorts against your entire factory allowance, in any market, at any strike. Combined with an ordinary ERC20 allowance on the option token, they can also transfer more options than you hold and leave you with a naked short.
 - **`TRANSFER` to the wrong party.** Full custody of your long positions: the grantee can move your options to itself and exercise them as its own. This is not weaker than `EXERCISE`; it reaches the same value in two steps.
 - **Mask `7` to an address that isn't really the settlement contract.** The grant is only as safe as the address. Verify you are granting to Bebop's actual settlement contract, exactly as you would verify a router before an unlimited approve.
 
-#### Looks Dangerous, Isn't
+#### Actions that do not create access
 
 - **A stranger creates an option market on your token, or on a scam token.** Creation is permissionless, but a market existing touches nothing of yours. Your allowance only moves inside a mint or exercise that you, or a `MINT` grantee of yours, initiated.
 - **Someone airdrops you Option or Receipt tokens.** They sit inert. Receiving tokens never pulls your funds and never burns anything unless you granted `BURN` to the party that initiated the transfer; even then, the burn returns collateral to you, not to them.
@@ -197,16 +197,16 @@ If all you ever do is `token.approve(factory, X)`, no third party can move anyth
 
 The protocol was audited by [Quantstamp](https://github.com/greekfi/greekfi/tree/main/audit) in June 2026: 0 high, 0 medium, 6 low, and 4 informational findings, against a test suite Quantstamp rated High quality.
 
-### Exercise and Redemption
+### Exercise and redemption
 
-**Exercise**; the holder pays `strike` in consideration and receives the collateral:
+**Exercise.** The holder pays `strike` in consideration and receives the collateral:
 
 ```solidity
 IERC20(consideration).approve(address(factory), type(uint256).max);   // once
 option.exercise(1e18);   // burn 1 Option, pay 1 × strike, receive 1 collateral
 ```
 
-**Redemption**; the writer's exit. Exercised options leave consideration in the pool; unexercised options leave collateral. `receipt.redeem()` burns the writer's Receipts and pays out of that pool, consideration first (strike × amount), then collateral 1:1:
+**Redemption.** This is the writer's exit. Exercised options leave consideration in the pool, while unexercised options leave collateral. `receipt.redeem()` burns the writer's Receipts and pays from that pool, first in consideration (strike × amount) and then in collateral at a 1:1 ratio:
 
 ```solidity
 receipt.redeem();   // or redeem(amount)
@@ -218,24 +218,33 @@ Exercise only during the exercise window, from expiration to the deadline. Redee
 
 #### American
 
-Exercise any time prior to expiration. Redeem consideration after exercises; redeem collateral after expiration.
+Exercise any time from creation through the deadline, including the post-expiration exercise window. Redeem consideration after exercises and collateral after expiration.
 
 Nothing exercises for you; an option never exercised lapses worthless (`option.expire(holder, amount)` cleans up the dead tokens). A keeper granted `EXERCISE` can exercise on your behalf; a keeper granted `REDEEM` can trigger redemption, with payout always to you.
 
-### Calls and Puts
+### Calls and puts
 
-A put is a call on the swapped pair; collateral and consideration trade places, and the contract math is identical. The `isPut` flag only changes how the strike is displayed:
+The contract represents a put as a call with the token pair reversed. A WETH call locks WETH and receives USDC when exercised. A WETH put locks USDC and receives WETH. The same settlement math handles both trades.
+
+The contract always stores the strike as **consideration per unit of collateral**. This matches the familiar quote for a call: a $3,000 WETH call uses 3,000 USDC per WETH. For a put, USDC is the collateral and WETH is the consideration, so the stored ratio must be inverted to 1/3,000 WETH per USDC.
 
 | | Collateral | Consideration | Strike (18 decimals) |
 |---|---|---|---|
 | **WETH call @ $3,000** | WETH | USDC | `3000e18` (USDC per WETH) |
 | **WETH put @ $3,000** | USDC | WETH | `1e36 / 3000e18` (WETH per USDC) |
 
-Minting a call deposits WETH; minting a put deposits USDC. Exercising a put pays WETH and receives USDC; the same swap, reversed.
+One put token represents one unit of its USDC collateral. Exercising 3,000 put tokens therefore reconstructs the familiar $3,000 put trade:
 
-*TODO: puts are backed by USDC (or similar), so the strike denomination is inverted and the units read strangely. Introduce the concept of a "block" of put options that, when exercised, needs 1 ETH-equivalent.*
+```
+3,000 WETH put tokens
+          +
+        1 WETH  ────── exercise ──────▶  3,000 USDC
+                   strike: 1/3,000 WETH per USDC
+```
 
-## Deployed Addresses
+The user-facing strike remains $3,000 per WETH. Only the contract's stored ratio is inverted because the collateral and consideration tokens switch places.
+
+## Deployed addresses
 
 One factory per chain; the contract you approve and grant permissions on.
 
@@ -248,7 +257,7 @@ Every option ever created is discoverable on-chain through the factory's `Option
 
 {/* API:BEGIN; generated by scripts/gen-reference.mjs, do not edit by hand */}
 
-## API Reference
+## API reference
 
 Auto-generated from the NatSpec in `foundry/contracts/`. Each contract is collapsible; reads
 are listed before state-changing functions, with events and errors in their own collapsible.
@@ -578,7 +587,7 @@ giving them a withdrawal right over your ITM value.** `Perm.TRANSFER` does not g
 your longs to itself and exercise them as their own holder, reaching the same ITM
 value by a different route. Both bits are custody-grade; see `Perm`.
 Allowed any time exercise itself is allowed ([canExercise](#option): pre-expiry for American,
-plus the post-expiry window through `exerciseDeadline` for both flavours). Reverts
+plus the post-expiry window through `exerciseDeadline` for both flavors). Reverts
 `ZeroValue` on a zero `amount`, `Unauthorized` without the grant, and
 `ERC20InsufficientBalance` if `holder` does not hold `amount`; this path never
 partially fills.
@@ -600,13 +609,14 @@ caller pays consideration and receives collateral for every holder. Exercises
 Three classes of entry are skipped rather than reverting, so one bad row cannot
 grief the sweep for everyone else: a zero `amounts[i]`, an `amounts[i]` greater than
 `balanceOf(holders[i])` (a holder who has since sold), and a holder who has not
-granted the caller `Perm.EXERCISE`. A batch in which every entry is skipped; an
-empty array included; succeeds as a no-op.
+granted the caller `Perm.EXERCISE`. A batch in which every entry is skipped,
+including an empty array, succeeds as a no-op.
 
-Skipping is the ONLY containment. `InvalidValue` on a length mismatch, the
-[canExercise](#option) window checks, and anything that makes `Receipt.exercise` revert; notably the caller's own consideration balance or factory allowance running out
-partway down the list; abort the whole batch and roll back the holders already
-processed. A repeated `holders[i]` is exercised once per occurrence, subject to the
+Only the three cases above are skipped. `InvalidValue` on a length mismatch,
+the [canExercise](#option) window checks, and any error from `Receipt.exercise`
+abort the whole batch and roll back holders already processed. Such errors include
+the caller running out of consideration or factory allowance partway through the
+list. A repeated `holders[i]` is exercised once per occurrence, subject to the
 balance check against the balance remaining after the earlier ones.
 Unlike `exerciseFor(address,uint256)` this returns nothing, so on-chain callers
 cannot tell which entries were skipped; read the balances back or watch the events.
@@ -1017,7 +1027,7 @@ Convert a collateral-denominated (equivalently receipt-denominated) amount into 
 consideration due for it at the strike price.
 
 Evaluates `amount * strike * numer / (1e18 * denom)` as one `mulDiv`, so only
-`strike * numer` can overflow; and `Factory` rejects at creation any strike that would.
+`strike * numer` can overflow. `Factory` rejects any strike that would overflow during creation.
 
 ---
 
@@ -1048,7 +1058,7 @@ function name() public view override returns (string memory);
 
 Human-readable token name in the form `RCT[E]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
 The `RCTE-` prefix flags European options, `RCT-` American; note this differs from
-`Option.name`, which spells its flavours `OPTE-` / `OPTA-`.
+`Option.name`, which spells its flavors `OPTE-` / `OPTA-`.
 
 For puts the displayed strike is inverted back (`1e36 / strike`) to the human form.
 `strike` is non-zero for every option `Factory` can create, so the division is safe.
@@ -1393,7 +1403,7 @@ differ in any field produce different keys (and therefore distinct option market
 function createOption(CreateParams memory p) public nonReentrant nonZero(p.strike) returns (address option_);
 ```
 
-- `p` `CreateParams`: See `CreateParams`: - `collateral`, `consideration`: ERC20 addresses; must differ. Standard ERC-20 only; no fee-on-transfer or rebasing tokens. - `expirationDate`: unix timestamp; must be strictly greater than `block.timestamp`. - `strike`: 18-decimal fixed point (consideration per collateral, inverted for puts). Must be non-zero, and when `consDec > collDec` must also satisfy the GRK-3 bound `strike <= type(uint256).max / 10**(consDec - collDec)`. - `isPut`: option flavour. - `isEuro`: `true` for European (no pre-expiry exercise), `false` for American. - `windowSeconds`: post-expiry exercise window length in seconds; taken literally (no contract-side default). American allows `0` (no extension); European requires `> 0`.
+- `p` `CreateParams`: See `CreateParams`: - `collateral`, `consideration`: ERC20 addresses; must differ. Standard ERC-20 only; no fee-on-transfer or rebasing tokens. - `expirationDate`: unix timestamp; must be strictly greater than `block.timestamp`. - `strike`: 18-decimal fixed point (consideration per collateral, inverted for puts). Must be non-zero, and when `consDec > collDec` must also satisfy the GRK-3 bound `strike <= type(uint256).max / 10**(consDec - collDec)`. - `isPut`: option flavor. - `isEuro`: `true` for European (no pre-expiry exercise), `false` for American. - `windowSeconds`: post-expiry exercise window length in seconds; taken literally (no contract-side default). American allows `0` (no extension); European requires `> 0`.
 - Returns `option_` `address`: The canonical `Option` address; either freshly deployed, or the existing option if an economically-identical one already exists (get-or-create; see `optionFor`).
 
 Deploy a new Option + Receipt pair. Emits [OptionCreated](#factory).
