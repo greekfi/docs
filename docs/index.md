@@ -6,7 +6,7 @@ toc_max_heading_level: 3
 
 # Greek
 
-Greek turns options into plain ERC20 tokens. Writing an option locks collateral and mints two tokens: the **Option**, the right to exercise, and the **Receipt**, the claim on the locked collateral. Both transfer freely and trade like any other token; production trading runs through [Bebop](https://bebop.xyz)'s RFQ system.
+Greek turns options into plain ERC20 tokens. Writing an option locks collateral and mints two tokens: the **Option**, the right to exercise, and the **Receipt**, the claim on the locked collateral. Both transfer freely and trade like any other token through RFQ settlement.
 
 Every option is fully collateralized, supports pairs of standard ERC20 tokens at any strike and expiry, and comes in **American** and **European** flavors. Fee-on-transfer and rebasing tokens are not supported. There is no oracle or protocol fee. The holder decides whether to exercise within the option's exercise window.
 
@@ -21,13 +21,13 @@ There are two ways in. A **holder** buys options with cash and may exercise them
 
 ### Holder: buy, then exercise
 
-**1. Approve your cash to Bebop's settlement contract.**
+**1. Approve your cash to the RFQ settlement contract.**
 
 ```solidity
-IERC20(usdc).approve(bebopContract, type(uint256).max);
+IERC20(usdc).approve(rfqSettlement, type(uint256).max);
 ```
 
-Read the settlement address off the quote response's `approvalTarget`. See Bebop's [RFQ API](https://docs.bebop.xyz/rfq-api/introduction) for the quote flow.
+Read the RFQ settlement address from the quote response's `approvalTarget`.
 
 **2. Buy.** Request and sign a quote. The option tokens arrive in your wallet after settlement.
 
@@ -40,7 +40,7 @@ option.exercise(amount);   // or exercise() for your whole balance
 
 Nothing exercises for you. If you do not act before the deadline, the option expires worthless. American options can be exercised any time before the deadline. European options can be exercised only between expiration and the deadline. See [Exercise and redemption](#exercise-and-redemption).
 
-**Selling back instead?** Grant Bebop's settlement contract once on the factory: `factory.setPermissions(bebopSettlement, 7)`.
+**Selling back instead?** Grant the RFQ settlement contract once on the factory: `factory.setPermissions(rfqSettlement, 7)`.
 
 ### Writer: sell, then exit
 
@@ -50,11 +50,11 @@ Nothing exercises for you. If you do not act before the deadline, the option exp
 IERC20(weth).approve(address(factory), type(uint256).max);
 ```
 
-**2. Permit Bebop's settlement contract on the factory.** One call, one mask:
+**2. Permit the RFQ settlement contract on the factory.** One call, one mask:
 
 ```solidity
 // TRANSFER | MINT | BURN = 7
-factory.setPermissions(bebopSettlement, 7);
+factory.setPermissions(rfqSettlement, 7);
 ```
 
 This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions and Security](#permissions-and-security) for all five bits.
@@ -162,9 +162,9 @@ Every grant covers every option this factory has created or ever will create; th
 - The grantee burns your options, pays the strike itself, and **receives the collateral**; you get nothing on-chain. Nothing in the contract forces it to pass your surplus back; that settlement happens off-chain or not at all.
 - Use it for exactly one thing: a keeper that exercises in-the-money options you would otherwise let lapse, and provably returns your share.
 
-<img src="/img/permissions.svg" alt="Permission grants" />
+<img src="/img/permissions.svg" alt="RFQ settlement permissions" />
 
-Treat protocol permissions with the same care as token approvals. Grant permissions only to verified contracts you trust. A permissionless market created with a malicious token cannot move your assets unless you interact with that market or authorize an operator to mint through your factory allowance. For Bebop settlement, verify the settlement address before granting `TRANSFER | MINT | BURN`. Review any other operator independently before granting it access.
+Treat protocol permissions with the same care as token approvals. Grant permissions only to verified contracts you trust. A permissionless market created with a malicious token cannot move your assets unless you interact with that market or authorize an operator to mint through your factory allowance. For RFQ settlement, verify the settlement address before granting `TRANSFER | MINT | BURN`. Review any other operator independently before granting it access.
 
 #### What the protocol cannot do
 
@@ -182,7 +182,7 @@ If all you ever do is `token.approve(factory, X)`, no third party can move anyth
 - **`EXERCISE` to the wrong party.** The grantee can exercise your in-the-money options at any time: they pay the strike, they receive the collateral, and you get nothing on-chain. Grant it only to a keeper that provably settles your share back to you.
 - **`MINT` to the wrong party.** `token.approve(factory, X)` plus a `MINT` grant equals `token.approve(grantee, X)`: the grantee can open shorts against your entire factory allowance, in any market, at any strike. Combined with an ordinary ERC20 allowance on the option token, they can also transfer more options than you hold and leave you with a naked short.
 - **`TRANSFER` to the wrong party.** Full custody of your long positions: the grantee can move your options to itself and exercise them as its own. This is not weaker than `EXERCISE`; it reaches the same value in two steps.
-- **Mask `7` to an address that isn't really the settlement contract.** The grant is only as safe as the address. Verify you are granting to Bebop's actual settlement contract, exactly as you would verify a router before an unlimited approve.
+- **Mask `7` to an address that isn't really the settlement contract.** The grant is only as safe as the address. Verify you are granting to the RFQ settlement contract, exactly as you would verify a router before an unlimited approve.
 
 #### Actions that do not create access
 
