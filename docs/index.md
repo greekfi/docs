@@ -209,15 +209,12 @@ If all you ever do is `token.approve(factory, X)`, no third party can move anyth
 
 #### Audit
 
-Cyfrin audited the contracts from August 31 through September 2, 2026. [Download the September 4 audit report (PDF)](/audits/2026-09-04-cyfrin-greekfi-audit.pdf). The protocol findings with direct user or operator impact were:
+These counts include protocol findings only.
 
-- **Medium, resolved.** Low-decimal wrapper tokens could bypass redemption fees. `Receipt` now rounds every nonzero fee up.
-- **Low, resolved.** The owner could set a live market's redemption fee above 10%. `Receipt` now enforces the Factory's 1,000 basis point cap.
-- **Low, resolved.** One unrecoverable Receipt atom could block surplus recovery. `sweep` now protects holder backing while recovering surplus balances.
-- **Low, resolved.** Unsolicited Option transfers could make `exercise()` revert near expiry. The documentation recommends the fixed-amount overload for deadline-sensitive calls.
-- **Informational, acknowledged.** `redeemFor` reverts its entire batch if the consideration pool runs out before the exercise deadline. This atomic behavior is intentional and covered by tests.
-
-The report's fix commit matches the deployed contract source.
+| Report | Extreme | High | Medium | Low | Informational | Gas |
+|---|---:|---:|---:|---:|---:|---:|
+| [Cyfrin (PDF)](/audits/cyfrin-audit-report.pdf) | 0 | 0 | 1 | 4 | 9 | 3 |
+| [Quantstamp (PDF)](/audits/quantstamp-final-report.pdf) | 0 | 0 | 0 | 6 | 4 | 0 |
 
 ### Exercise and redemption
 
