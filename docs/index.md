@@ -209,7 +209,7 @@ If all you ever do is `token.approve(factory, X)`, no third party can move anyth
 
 #### Audit
 
-[Quantstamp's June 2026 initial report](https://github.com/greekfi/protocol/blob/main/audit/quantstamp-initial-report.md) covered source commit `ddfb7e6`, before the deployed v2.0 cut. It reported 0 high, 0 medium, 7 low, and 4 informational findings, all unresolved in that draft. Do not treat that report as an audit of v2.0.
+[Quantstamp's June 2026 initial report](https://github.com/greekfi/protocol/blob/main/audit/quantstamp-initial-report.md) covered source commit `ddfb7e6`, before the currently deployed contract commit. It reported 0 high, 0 medium, 7 low, and 4 informational findings, all unresolved in that draft. Do not treat that report as an audit of the deployed contracts.
 
 ### Exercise and redemption
 
@@ -264,7 +264,7 @@ The user-facing strike remains $3,000 per WETH. Only the contract's stored ratio
 
 ## Deployed addresses
 
-The active Ethereum and BNB Smart Chain deployments use the frozen [v2.0 contract commit](https://github.com/greekfi/contracts/commit/23bfee78157f16f0b270cf3f8f6853a469ecdb18). Both use the same Factory address; this is the contract you approve and grant permissions on. Older factories remain on-chain but are not active targets.
+The active Ethereum and BNB Smart Chain deployments use this frozen [contract source](https://github.com/greekfi/contracts/commit/23bfee78157f16f0b270cf3f8f6853a469ecdb18). Both use the same Factory address; this is the contract you approve and grant permissions on. Older factories remain on-chain but are not active targets.
 
 | Network            | Chain ID | Factory | Deployment block |
 |--------------------|---------:|---------|-----------------:|
