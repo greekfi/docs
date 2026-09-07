@@ -264,15 +264,12 @@ The user-facing strike remains $3,000 per WETH. Only the contract's stored ratio
 
 ## Deployed addresses
 
-The active deployments use the frozen [v2.0 contract commit](https://github.com/greekfi/contracts/commit/23bfee78157f16f0b270cf3f8f6853a469ecdb18). The same Factory address is deployed on every supported chain; this is the contract you approve and grant permissions on. Older factories remain on-chain but are not active targets.
+The active Ethereum and BNB Smart Chain deployments use the frozen [v2.0 contract commit](https://github.com/greekfi/contracts/commit/23bfee78157f16f0b270cf3f8f6853a469ecdb18). Both use the same Factory address; this is the contract you approve and grant permissions on. Older factories remain on-chain but are not active targets.
 
 | Network            | Chain ID | Factory | Deployment block |
 |--------------------|---------:|---------|-----------------:|
 | Ethereum (Mainnet) | 1        | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 25,911,928 |
 | BNB Smart Chain    | 56       | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 120,154,298 |
-| Robinhood Chain    | 4663     | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 55,313,109 |
-| Base               | 8453     | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 50,918,192 |
-| Hemi               | 43111    | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 5,229,320 |
 
 Every option ever created is discoverable on-chain through the factory's `OptionCreated` event; see the [API Reference](#api-reference).
 
