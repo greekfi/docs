@@ -37,7 +37,6 @@ const config = {
         docs: {
           routeBasePath: "/",
           sidebarPath: "./sidebars.js",
-          editUrl: "https://github.com/greekfi/docs/tree/main/",
         },
         blog: false,
         theme: {
@@ -68,11 +67,6 @@ const config = {
             label: "Greek.fi",
             position: "right",
           },
-          {
-            href: "https://github.com/greekfi/greekfi",
-            label: "GitHub",
-            position: "right",
-          },
         ],
       },
       footer: {
@@ -83,15 +77,6 @@ const config = {
             items: [
               { label: "Greek.fi", href: "https://greek.fi" },
               { label: "Documentation", to: "/" },
-            ],
-          },
-          {
-            title: "Code",
-            items: [
-              {
-                label: "Contracts",
-                href: "https://github.com/greekfi/contracts",
-              },
             ],
           },
         ],
