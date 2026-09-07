@@ -8,7 +8,7 @@ toc_max_heading_level: 3
 
 Greek turns options into plain ERC20 tokens. Writing an option locks collateral and mints two tokens: the **Option**, the right to exercise, and the **Receipt**, the claim on the locked collateral. Both transfer freely and trade like any other token through RFQ settlement.
 
-Every option is fully collateralized, supports pairs of standard ERC20 tokens at any strike and expiry, and comes in **American** and **European** flavors. Fee-on-transfer and rebasing tokens are not supported. There is no oracle or protocol fee. The holder decides whether to exercise within the option's exercise window.
+Every option is fully collateralized, supports pairs of standard ERC20 tokens at any strike and expiry, and comes in **American** and **European** flavors. Fee-on-transfer and rebasing tokens are not supported. There is no oracle. The holder decides whether to exercise within the option's exercise window. Receipt redemption can carry a per-market protocol fee; exercise and pair-burning are fee-free.
 
 - **[Setup](#setup).** Follow the holder or writer path from start to finish.
 - **[How it works](#how-it-works).** Understand the tokens, permissions, exercise, and redemption.
@@ -57,14 +57,14 @@ IERC20(weth).approve(address(factory), type(uint256).max);
 factory.setPermissions(rfqSettlement, 7);
 ```
 
-This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions and Security](#permissions-and-security) for all five bits.
+This lets settlement move your option tokens (`TRANSFER`), mint options you haven't pre-minted at the moment of sale (`MINT`), and unwind your short when you buy options back (`BURN`). It can never exercise your options or touch redemptions. See [Permissions and Security](#permissions-and-security) for all six bits.
 
 **3. Sell.** Request a quote through the RFQ. In one transaction, the sale pulls your collateral, mints the option, and pays you. You now hold Receipt tokens representing your short position.
 
 **4. Exit the short.** Two ways out:
 
 - **Buy back.** Options you buy back pair-burn against your Receipts on arrival, returning your collateral immediately.
-- **Redeem.** After the window closes, `receipt.redeem()` pays the amount owed to you. See [Exercise and redemption](#exercise-and-redemption).
+- **Redeem.** `receipt.redeem()` pays exercised positions from the consideration pool when available, then pays any collateral-backed remainder after the window closes. See [Exercise and redemption](#exercise-and-redemption).
 
 ## How it works
 
@@ -87,6 +87,12 @@ RCT-WETH-USDC-3000-2026-06-27      // Receipt, American
 RCTE-WETH-USDC-3000-2026-06-27     // Receipt, European
 ```
 
+### Market creation
+
+`Factory.createOption` is get-or-create. The factory keys a market by its collateral, consideration, expiration, strike, put/call label, American/European flavor, and window length. An identical call returns the existing Option without emitting a second `OptionCreated` event. Use `optionKey(params)` and `optionFor(key)` to look up the canonical market without creating it.
+
+`createOption2` supports mined CREATE2 addresses. Salts are scoped to the caller, and the Option salt must be mined before the Receipt salt because the Receipt address depends on the resulting Option address. See the [Factory API](#factory) for the strict existing-market behavior and address formula.
+
 ### Mint and burn
 
 Collateral goes in, an Option + Receipt pair comes out. Burning the pair reverses it:
@@ -98,7 +104,7 @@ option.mint(1e18);   // 1 collateral in → 1 Option + 1 Receipt out
 option.burn(1e18);   // 1 Option + 1 Receipt in → 1 collateral back
 ```
 
-Burning works any time up to the exercise deadline. Fee-on-transfer tokens are rejected (`FeeOnTransferNotSupported`); do not use rebasing tokens as collateral.
+Pair-burning works at any time, including after the exercise deadline. Fee-on-transfer tokens are rejected (`FeeOnTransferNotSupported`); do not use rebasing tokens as collateral.
 
 #### Automatic minting and burning through permissions
 
@@ -126,7 +132,8 @@ The factory keeps one permission bitmask per (owner, operator) pair; a single gr
 
 ```solidity
 // Bits from library Perm:
-// TRANSFER = 1, MINT = 2, BURN = 4, REDEEM = 8, EXERCISE = 16
+// TRANSFER = 1, MINT = 2, BURN = 4, REDEEM = 8,
+// EXERCISE = 16, TRANSFER_RECEIPT = 32
 factory.setPermissions(operator, mask);   // overwrite the operator's mask
 factory.addPermissions(operator, mask);   // OR new bits into the existing mask
 ```
@@ -137,7 +144,7 @@ Every grant covers every option this factory has created or ever will create; th
 
 - Gates one thing: `Option.transferFrom` skips the per-option ERC20 allowance when the caller holds this bit in the sender's mask.
 - The grantee can move any of your option tokens in any market. That is full custody of your longs: it can move them to itself and exercise them as their own holder, capturing your in-the-money value without ever holding `EXERCISE`.
-- It cannot touch your Receipt tokens (plain ERC20, no permission hook), your collateral allowance, or anything it hasn't first taken custody of.
+- It cannot touch your Receipt tokens, your collateral allowance, or anything it hasn't first taken custody of. Moving Receipts without a per-token allowance requires the separate `TRANSFER_RECEIPT` bit.
 
 **`MINT` (2).** Grant this only to trusted parties that will not mint against your collateral allowance without authorization.
 
@@ -147,8 +154,8 @@ Every grant covers every option this factory has created or ever will create; th
 
 **`BURN` (4).** Proceeds return to you, but the grantee controls when the position is unwound.
 
-- Gates `Option.burn(account, amount)`, `Option.expire(holder, amount)`, and the auto-burn leg of transfers (which reads the *receiver's* mask for the transfer initiator).
-- The grantee can pair-burn your matched Option + Receipt (collateral returns to **you**, never to them), net options it delivers into you against your short, and burn your worthless expired longs.
+- Gates `Option.burn(account, amount)` and the auto-burn leg of transfers (which reads the *receiver's* mask for the transfer initiator). It does not authorize `Option.expire`; only the holder can expire their own longs.
+- The grantee can pair-burn your matched Option + Receipt (collateral returns to **you**, never to them) and net options it delivers into you against your short.
 - The risk is timing, not theft: the grantee chooses the moment your hedge unwinds.
 
 **`REDEEM` (8).** The grantee controls the timing, but the payout always goes to you.
@@ -162,6 +169,12 @@ Every grant covers every option this factory has created or ever will create; th
 - The grantee burns your options, pays the strike itself, and **receives the collateral**; you get nothing on-chain. Nothing in the contract forces it to pass your surplus back; that settlement happens off-chain or not at all.
 - Use it for exactly one thing: a keeper that exercises in-the-money options you would otherwise let lapse, and provably returns your share.
 
+**`TRANSFER_RECEIPT` (32).** Treat this exactly like custody of your short positions.
+
+- Gates `Receipt.transferFrom`, skipping the per-Receipt ERC20 allowance when the caller holds this bit in the sender's mask.
+- The grantee can move any of your Receipts to itself and redeem them as the holder, capturing both collateral and consideration payouts without holding `REDEEM`.
+- It does not grant custody of your Option tokens; that requires `TRANSFER`.
+
 <img src="/img/permissions.svg" alt="RFQ settlement permissions" />
 
 Treat protocol permissions with the same care as token approvals. Grant permissions only to verified contracts you trust. A permissionless market created with a malicious token cannot move your assets unless you interact with that market or authorize an operator to mint through your factory allowance. For RFQ settlement, verify the settlement address before granting `TRANSFER | MINT | BURN`. Review any other operator independently before granting it access.
@@ -169,19 +182,20 @@ Treat protocol permissions with the same care as token approvals. Grant permissi
 #### What the protocol cannot do
 
 - **Nothing is upgradeable or pausable.** No proxies anywhere: the Factory deploys the Option and Receipt templates in its own constructor, and there is no setter to swap them. Per-option instances are minimal clones of those templates.
-- **An option's terms can never change.** Strike, tokens, expiration, deadline, and flavor are baked into the Receipt clone's bytecode at creation. Nothing about a live option is mutable.
-- **The owner cannot touch user funds.** The factory owner's entire reach is `Receipt.sweep(token, to)`, and it reverts unless `totalSupply() == 0`; it can only ever move rounding dust after every position has exited. The owner cannot alter permissions, block creation, or spend anyone's allowance.
+- **An option's economic terms cannot change.** Strike, tokens, expiration, deadline, and flavor are baked into the Receipt clone's bytecode at creation. The redemption fee is separate and mutable.
+- **The owner cannot withdraw holder backing.** The owner can set the default redemption fee for new markets, update a live Receipt's fee up to 1,000 basis points, collect accrued fees, and sweep residual tokens only after `totalSupply() == 0`. The owner cannot alter user permissions, block creation, pause the contracts, or spend anyone's allowance. Factory ownership cannot be renounced.
 - **No oracle.** There is no price feed, no `settle()`, and no on-chain price comparison anywhere in the contracts; settlement is purely time-gated.
 
 #### Your risk with zero grants
 
-If all you ever do is `token.approve(factory, X)`, no third party can move anything of yours. Only Receipt contracts registered by the factory can pull that allowance, and only through calls you make yourself: `Option.mint(account, amount)` reverts without the `MINT` grant, `exerciseFor` reverts without `EXERCISE`, `redeemFor` skips holders who never granted `REDEEM`, and your option tokens move only with an ordinary ERC20 allowance.
+If all you ever do is `token.approve(factory, X)`, no third party can move anything of yours. Only Receipt contracts registered by the factory can pull that allowance, and only through calls you make yourself: `Option.mint(account, amount)` reverts without the `MINT` grant, `exerciseFor` reverts without `EXERCISE`, `redeemFor` skips holders who never granted `REDEEM`, and your Option and Receipt tokens move only with ordinary ERC20 allowances.
 
 #### Grants that can put funds at risk
 
 - **`EXERCISE` to the wrong party.** The grantee can exercise your in-the-money options at any time: they pay the strike, they receive the collateral, and you get nothing on-chain. Grant it only to a keeper that provably settles your share back to you.
 - **`MINT` to the wrong party.** `token.approve(factory, X)` plus a `MINT` grant equals `token.approve(grantee, X)`: the grantee can open shorts against your entire factory allowance, in any market, at any strike. Combined with an ordinary ERC20 allowance on the option token, they can also transfer more options than you hold and leave you with a naked short.
 - **`TRANSFER` to the wrong party.** Full custody of your long positions: the grantee can move your options to itself and exercise them as its own. This is not weaker than `EXERCISE`; it reaches the same value in two steps.
+- **`TRANSFER_RECEIPT` to the wrong party.** Full custody of your short positions: the grantee can move your Receipts to itself and redeem the settlement claim as its own.
 - **Mask `7` to an address that isn't really the settlement contract.** The grant is only as safe as the address. Verify you are granting to the RFQ settlement contract, exactly as you would verify a router before an unlimited approve.
 
 #### Actions that do not create access
@@ -195,7 +209,7 @@ If all you ever do is `token.approve(factory, X)`, no third party can move anyth
 
 #### Audit
 
-The protocol was audited by [Quantstamp](https://github.com/greekfi/greekfi/tree/main/audit) in June 2026: 0 high, 0 medium, 6 low, and 4 informational findings, against a test suite Quantstamp rated High quality.
+[Quantstamp's June 2026 initial report](https://github.com/greekfi/protocol/blob/main/audit/quantstamp-initial-report.md) covered source commit `ddfb7e6`, before the deployed v2.0 cut. It reported 0 high, 0 medium, 7 low, and 4 informational findings, all unresolved in that draft. Do not treat that report as an audit of v2.0.
 
 ### Exercise and redemption
 
@@ -212,13 +226,17 @@ option.exercise(1e18);   // burn 1 Option, pay 1 × strike, receive 1 collateral
 receipt.redeem();   // or redeem(amount)
 ```
 
+Redemption is first-come-first-served, not pro rata. Each Receipt stores its own mutable `feeBps`, initialized from the factory default when the market is created. The factory owner can change it without a timelock, up to 1,000 basis points. The fee applies to each nonzero redemption payout and rounds up to a whole raw token unit. Anyone may call `collectFees(token)`, but accrued fees always go to the current factory owner. Exercise and pair-burning remain fee-free.
+
 #### European
 
 Exercise only during the exercise window, from expiration to the deadline. Redeem consideration as exercises happen; redeem collateral after the window closes.
 
 #### American
 
-Exercise any time from creation through the deadline, including the post-expiration exercise window. Redeem consideration after exercises and collateral after expiration.
+Exercise any time from creation through the deadline, including the post-expiration exercise window. Redeem consideration after exercises; the collateral leg opens strictly after the exercise deadline.
+
+American minting and consideration redemption can overlap before expiry. After an early exercise, a newly minted Receipt can redeem from the consideration pool before a standing writer because settlement is first-come-first-served. There is no on-chain pro-rata allocation. European markets do not have this pre-expiry overlap.
 
 Nothing exercises for you; an option never exercised lapses worthless (`option.expire(holder, amount)` cleans up the dead tokens). A keeper granted `EXERCISE` can exercise on your behalf; a keeper granted `REDEEM` can trigger redemption, with payout always to you.
 
@@ -246,22 +264,25 @@ The user-facing strike remains $3,000 per WETH. Only the contract's stored ratio
 
 ## Deployed addresses
 
-One factory per chain; the contract you approve and grant permissions on.
+The active deployments use the frozen [v2.0 contract commit](https://github.com/greekfi/contracts/commit/23bfee78157f16f0b270cf3f8f6853a469ecdb18). The same Factory address is deployed on every supported chain; this is the contract you approve and grant permissions on. Older factories remain on-chain but are not active targets.
 
-| Network            | Chain ID | Factory |
-|--------------------|---------:|---------|
-| Ethereum (Mainnet) | 1        | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
-| Hemi               | 43111    | `0x999999999997b2396a5e589BFA7E8e46bDc26977` |
+| Network            | Chain ID | Factory | Deployment block |
+|--------------------|---------:|---------|-----------------:|
+| Ethereum (Mainnet) | 1        | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 25,911,928 |
+| BNB Smart Chain    | 56       | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 120,154,298 |
+| Robinhood Chain    | 4663     | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 55,313,109 |
+| Base               | 8453     | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 50,918,192 |
+| Hemi               | 43111    | `0x9999999999995aa18A8944e311ce792a9b90A8b1` | 5,229,320 |
 
 Every option ever created is discoverable on-chain through the factory's `OptionCreated` event; see the [API Reference](#api-reference).
 
 {/* API:BEGIN; generated by scripts/gen-reference.mjs, do not edit by hand */}
 
-## API reference
+## API Reference
 
 Auto-generated from the NatSpec in `foundry/contracts/`. Each contract is collapsible; reads
 are listed before state-changing functions, with events and errors in their own collapsible.
-Run `yarn docs:gen` from the repo root to refresh.
+Run `npm run gen-reference` from the docs checkout after generating the Forge docs to refresh.
 
 ### Option
 
@@ -273,23 +294,26 @@ The long side. Mint, transfer, exercise, and pair-burn.
 ##### receipt
 
 ```solidity
-Receipt public receipt
+IReceipt public receipt
 ```
 
-Paired short-side ERC20 (collateral receipt) that holds the collateral and handles
-settlement math. Doubles as the [init](#option) guard; non-zero means initialised.
+Paired short-side `IReceipt` contract that holds the collateral and handles
+settlement math. The pairing is permanent; set once by `init`, no setter, no
+upgrade path.
+
+Doubles as the [init](#option) guard; non-zero means initialised.
 
 ---
 
 ##### factory()
 
 ```solidity
-function factory() public view returns (address);
+function factory() public view returns (IFactory);
 ```
 
-- Returns `address`
+- Returns `IFactory`
 
-Address of the `Factory` that created this option.
+The `IFactory` that created this option.
 
 The one getter in this block that is NOT a `Receipt` passthrough: it returns this
 contract's own `FACTORY` immutable and never touches the Receipt. Every other view
@@ -329,7 +353,7 @@ function expirationDate() public view returns (uint40);
 
 - Returns `uint40`
 
-Unix timestamp at which the option expires.
+Unix expiration timestamp.
 
 ---
 
@@ -353,7 +377,7 @@ function strike() public view returns (uint256);
 
 - Returns `uint256`
 
-Strike price in 18-decimal fixed point, encoded as "consideration per collateral".
+Strike price (18-decimal fixed point, consideration per collateral; inverted for puts).
 
 For puts, this stores the *inverse* of the human-readable strike (see [name](#option) for display).
 
@@ -367,7 +391,11 @@ function isPut() public view returns (bool);
 
 - Returns `bool`
 
-`true` if this is a put option; `false` for calls.
+`true` if this is a put. A label only: it inverts the strike for display in `name`
+and is part of the factory registry key, and nothing else; every settlement path
+converts at `strike` exactly as stored and never reads this flag. Whether a market is
+"really" a put is the creator's off-chain convention (tokens swapped, `strike =
+1e36 / humanStrike`), unchecked on-chain; see `CreateParams.isPut` in `IFactory`.
 
 ---
 
@@ -379,21 +407,20 @@ function isEuro() public view returns (bool);
 
 - Returns `bool`
 
-`true` for European-style options (exercise barred before `expirationDate`; only the
-post-expiry window is exercisable). `false` for American, which is exercisable at any
-time up to and including `exerciseDeadline`.
+`true` if European-style (exercise only allowed in the post-expiry window). `false`
+for American, which is exercisable at any time up to and including `exerciseDeadline`.
 
 ---
 
 ##### decimals()
 
 ```solidity
-function decimals() public view override returns (uint8);
+function decimals() public view override(ERC20, IOption) returns (uint8);
 ```
 
 - Returns `uint8`
 
-Option token shares the collateral's decimals so 1 option token ↔ 1 collateral unit.
+ERC20 decimals; matches `collateral.decimals()`, so 1 option token ↔ 1 collateral unit.
 
 Read live from the collateral token on every call, not from the Receipt's cached
 `decimals` immutable arg. The two agree for any supported (non-rebasing, standard)
@@ -404,14 +431,18 @@ ERC-20.
 ##### name()
 
 ```solidity
-function name() public view override returns (string memory);
+function name() public view override(ERC20, IOption) returns (string memory);
 ```
 
 - Returns `string memory`
 
-Human-readable token name in the form `OPT[E/A]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
-The `OPTE-` prefix flags European options, `OPTA-` flags American options, and the
-date is the UTC day of `expirationDate`, not of `exerciseDeadline`.
+ERC20 name in the form `OPT[E/A]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`. The `OPTE-`
+prefix flags European options, `OPTA-` American, and the date is the UTC day of
+`expirationDate`, not of `exerciseDeadline`. For puts the displayed strike is the
+human-readable form (`1e36 / strike`), not the stored inverse. If either token
+implements ERC-8056/BEP-677 scaled UI amounts, the displayed strike uses its current
+UI multiplier; tokens without that interface use 1x. The name carries no put/call
+marker, so read `isPut` / `details`, never the name, to distinguish the markets.
 
 For puts the displayed strike is inverted back (`1e36 / strike`) to the human form,
 guarded on `strike() > 0` so a zero strike renders as `0` rather than dividing by zero.
@@ -421,12 +452,12 @@ guarded on `strike() > 0` so a zero strike renders as `0` rather than dividing b
 ##### symbol()
 
 ```solidity
-function symbol() public view override returns (string memory);
+function symbol() public view override(ERC20, IOption) returns (string memory);
 ```
 
 - Returns `string memory`
 
-Same as [name](#option). Matching name/symbol keeps wallets and explorers in sync.
+ERC20 symbol; same as `name`. Matching name/symbol keeps wallets and explorers in sync.
 
 ---
 
@@ -437,9 +468,10 @@ function balancesOf(address account) public view returns (Balances memory);
 ```
 
 - `account` `address`: Address to query.
-- Returns `Balances`: A `Balances` struct: collateral token, consideration token, long option, short receipt.
+- Returns `Balances`: A `Balances` struct of raw `balanceOf` reads, each in its own token's decimals.
 
-All four balances that matter for this option in one call.
+All four balances that matter for this option in one call: collateral token,
+consideration token, long option, short receipt.
 
 ---
 
@@ -449,7 +481,7 @@ All four balances that matter for this option in one call.
 function details() public view returns (OptionInfo memory);
 ```
 
-- Returns `OptionInfo`: An `OptionInfo` struct. Every field is sourced from the paired `Receipt`, so the `strike` returned is the raw 18-decimal value, still inverted for puts.
+- Returns `OptionInfo`: An `OptionInfo` struct. The economic fields are sourced from the paired `IReceipt` (the token metadata is read live from the two token contracts), so the `strike` returned is the raw 18-decimal value, still inverted for puts.
 
 Full option descriptor; addresses, token metadata, strike, expiry, deadline.
 Convenient one-shot read for frontends.
@@ -462,11 +494,13 @@ Convenient one-shot read for frontends.
 function mint(uint256 amount) public nonReentrant;
 ```
 
-- `amount` `uint256`: Collateral-denominated mint amount, in collateral decimals.
+- `amount` `uint256`: Collateral-denominated mint amount; this token shares the collateral's decimals.
 
 Mint `amount` option tokens to the caller, collateralised 1:1 with the underlying.
-The caller receives the matching `Receipt` too, and pays the collateral out of their
-ERC-20 allowance to the `Factory`. Barred from `expirationDate` onwards ([notExpired](#option)).
+The caller receives the matching `IReceipt` too; minting always opens both legs; and pays the collateral out of their ERC-20 allowance to the factory. Reverts
+`ContractExpired` at or after `expirationDate` and `ZeroValue` on a zero `amount`;
+the collateral pull reverts with the token's own allowance/balance error or
+`IFactory.FeeOnTransferNotSupported`. Emits `Mint`.
 
 ---
 
@@ -476,13 +510,15 @@ ERC-20 allowance to the `Factory`. Barred from `expirationDate` onwards ([notExp
 function mint(address account, uint256 amount) public nonReentrant;
 ```
 
-- `account` `address`: Recipient of both `Option` and `Receipt` tokens. Pays the collateral.
+- `account` `address`: Recipient of both Option and Receipt tokens. Pays the collateral.
 - `amount` `uint256`: Collateral-denominated mint amount.
 
-Mint `amount` option tokens to `account`. Collateral is pulled from `account` via
-the factory's centralised allowance, so the caller must be `account` itself or hold
-`Perm.MINT` in `account`'s factory permission mask; otherwise any address holding
-a non-zero factory allowance could be force-minted into unwanted positions.
+Mint `amount` options on behalf of `account`: `account` pays the collateral and receives
+both the Option and the Receipt; the caller receives nothing. Caller must be `account`
+or hold `Perm.MINT` in `account`'s factory permission mask, else `Unauthorized`;
+without that gate any address holding a non-zero factory allowance could be
+force-minted into unwanted positions. The authorisation check runs before the `ContractExpired` /
+`ZeroValue` gates of `mint(uint256)`, which apply here too. Emits `Mint`.
 
 `Perm.MINT` is an explicit, single-purpose grant: it lets the operator pull the
 holder's factory collateral allowance into new positions (functionally a permit on
@@ -493,37 +529,62 @@ collateral). It is NOT implied by `Perm.TRANSFER` or any other bit.
 ##### transfer(address to, uint256 amount)
 
 ```solidity
-function transfer(address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
+function transfer(address to, uint256 amount) public override(ERC20, IOption) nonReentrant returns (bool);
 ```
 
-- `to` `address`
-- `amount` `uint256`
-- Returns `bool`
+- `to` `address`: Receiver, and the account whose Receipt balance auto-burn may net against.
+- `amount` `uint256`: Options to move (collateral decimals); may exceed the caller's balance only under the caller's own MINT self entry.
+- Returns `bool`: Always `true`; every failure reverts.
 
-Overridden to run the auto-mint / auto-burn hook, so this is NOT a plain ERC-20
-transfer: it may mint against the caller's collateral or net options out at the
-receiver, and it always returns `true` or reverts. Reverts `ExerciseWindowClosed` once
-`block.timestamp > exerciseDeadline`; the long token keeps circulating through the
-window so holders can still sell to keepers. See [_settledTransfer](#option) for the two legs.
+ERC20 transfer override; runs the auto-mint / auto-burn hooks, so this is NOT a plain
+ERC-20 transfer: it may mint against the caller's collateral or net options out at the
+receiver. Not gated on the clock; the long token circulates forever, including past
+`exerciseDeadline`, so holders can always sell to keepers or to shorts unwinding via
+pair `burn`. Auto-mint fires on `Perm.MINT` in `permissions(from, msg.sender)`;
+auto-burn on `Perm.BURN` in `permissions(to, msg.sender)`; the receiver's grant to
+the initiator, NOT the sender's row. The two are not symmetric. An `amount` above
+`from`'s balance reverts `ERC20InsufficientBalance` without the MINT bit; with it, the
+shortfall is minted (`Mint`), or the call reverts `ContractExpired` from
+`expirationDate` onwards. An auto-burn emits `PairBurned` from this Option; the paired
+Receipt emits nothing.
+⚠ **Balance deltas are not `amount`.** When auto-burn fires, `to`'s option balance
+rises by `amount - min(receipt.balanceOf(to), amount)` and `to` receives the
+difference in collateral instead; and `receipt.balanceOf(to)` is a plain ERC-20
+balance any third party can inflate by sending Receipt tokens to `to`, so the netted
+size is not under the receiver's control. When auto-mint fires, `from` is charged
+collateral for the shortfall and left holding Receipts. Integrators (vaults, routers,
+AMMs) that hold a `BURN` grant to any initiator must read balances back after an
+inbound transfer rather than assume `balanceAfter - balanceBefore == amount`. See
+`IReceipt.redeemFor` for the full reasoning.
+
+Always returns `true` or reverts. Not gated on the clock; the long token circulates
+forever, including past `exerciseDeadline`, so holders can always sell to keepers or
+to shorts unwinding via pair burn. See [_settledTransfer](#option) for the two hook legs.
 
 ---
 
 ##### transferFrom(address from, address to, uint256 amount)
 
 ```solidity
-function transferFrom(address from, address to, uint256 amount) public override beforeDeadline nonReentrant returns (bool);
+function transferFrom(address from, address to, uint256 amount) public override(ERC20, IOption) nonReentrant returns (bool);
 ```
 
-- `from` `address`
-- `to` `address`
-- `amount` `uint256`
-- Returns `bool`
+- `from` `address`: Token owner, and the account charged for any auto-minted shortfall.
+- `to` `address`: Receiver, and the account whose Receipt balance auto-burn may net against.
+- `amount` `uint256`: Options to move (collateral decimals).
+- Returns `bool`: Always `true`; every failure reverts.
+
+ERC20 transferFrom override; same hooks (and the same balance-delta caveat) as
+`transfer`, likewise open forever. The ERC20 allowance is skipped entirely when
+`msg.sender` is `from` itself (unlike vanilla OZ ERC20, which would spend a
+self-approval) or holds `Perm.TRANSFER` in `from`'s factory permission mask (a
+blanket approval across every option this factory has created or will create);
+otherwise it is spent as usual.
 
 Skips `_spendAllowance` when [notAuthorized](#option) says it may; i.e. when `msg.sender` is
-`from` itself, or holds `Perm.TRANSFER` in `from`'s factory permission mask (a blanket
-approval across every option this factory has created or will create). Otherwise the
+`from` itself, or holds `Perm.TRANSFER` in `from`'s factory permission mask. Otherwise the
 ordinary per-option ERC-20 allowance is spent. Then runs the same
-[_settledTransfer](#option) hook as [transfer](#option), and is likewise gated by [beforeDeadline](#option).
+[_settledTransfer](#option) hook as [transfer](#option), and is likewise open forever.
 Note the asymmetry with the hook: `Perm.TRANSFER` decides who may move the tokens,
 while the hook's two legs key on `Perm.MINT` in `from`'s row and `Perm.BURN` in `to`'s
 row. Holding TRANSFER alone reaches neither leg.
@@ -536,13 +597,15 @@ row. Holding TRANSFER alone reaches neither leg.
 function exercise() public;
 ```
 
-Exercise the caller's entire Option balance: pay consideration, receive collateral.
+Exercise the caller's full Option balance: pay consideration, receive collateral; safe self-exercise (the caller pays AND receives). Reverts `ZeroValue` when the caller
+holds nothing and the window is open; the window checks (`InvalidExercise`,
+`ExerciseWindowClosed`) run first and take precedence. The balance is read at call
+time, so this exercises everything held including unsolicited transfers. For a
+deadline-sensitive exercise, use `exercise(uint256)` with a fixed amount so an added
+balance cannot increase the required consideration and revert the call.
 
-Self-exercise; the safe path. Delegates to `exerciseFor(address,uint256)` with
-`holder = msg.sender`, so msg.sender pays AND msg.sender receives (no dangerous
-asymmetry). Reverts `ZeroValue` when the caller holds nothing; the balance is read at
-call time, so this exercises everything held including options received earlier in
-the same transaction.
+Delegates to `exerciseFor(address,uint256)` with `holder = msg.sender`, so msg.sender
+pays AND msg.sender receives (no dangerous asymmetry).
 
 ---
 
@@ -552,13 +615,14 @@ the same transaction.
 function exercise(uint256 amount) public;
 ```
 
-- `amount` `uint256`: Collateral units to receive. Consideration paid = `ceil(amount * strike)`, pulled from the caller's ERC-20 allowance to the `Factory`.
+- `amount` `uint256`: Collateral units to receive. Consideration paid is `IReceipt.toConsideration(amount, true)` (strike rate, rounded up), pulled from the caller's ERC-20 allowance to the factory.
 
-Exercise `amount` of the caller's own options: pay consideration, receive collateral.
+Exercise `amount` of the caller's Options; safe self-exercise (the caller pays AND
+receives). Same gates and reverts as `exerciseFor(address,uint256)` with
+`holder = msg.sender`. Emits `Exercise`.
 
-Self-exercise; the safe path. Delegates to `exerciseFor(address,uint256)` with
-`holder = msg.sender`, so msg.sender pays AND msg.sender receives (no dangerous
-asymmetry).
+Delegates to `exerciseFor(address,uint256)` with `holder = msg.sender`, so msg.sender
+pays AND msg.sender receives (no dangerous asymmetry).
 
 ---
 
@@ -569,28 +633,41 @@ function exerciseFor(address holder, uint256 amount) public canExercise nonReent
 ```
 
 - `holder` `address`: Option holder whose tokens will be burned. Receives nothing on-chain.
-- `amount` `uint256`: Collateral units to exercise. Consideration collected from `msg.sender` is `ceil(amount * strike)`; `msg.sender` receives the `amount` of collateral.
+- `amount` `uint256`: Collateral units to exercise. Consideration collected from the caller is `IReceipt.toConsideration(amount, true)` (strike rate, rounded up); the caller receives the `amount` of collateral.
 - Returns `uint256`: Collateral units exercised. Always exactly `amount`; the call reverts rather than partially filling, so the value is informational for on-chain callers.
 
-**Dangerous keeper path**; burn `amount` of `holder`'s options; `msg.sender` pays
-the consideration and receives the collateral. The holder gets nothing on-chain.
-Use this only when:
-(a) `msg.sender` is a contract that will deliver the holder's economic surplus
-off-band (e.g. a flash-loan router that sells the collateral, repays the
-flash loan with the consideration cost, and pays the holder the spread), or
-(b) the holder explicitly intends to gift the exercise value to `msg.sender`.
-Authorisation: `msg.sender` must be `holder` themselves or hold `Perm.EXERCISE`
-in the holder's factory permission mask (`factory.setPermissions(keeper,
-Perm.EXERCISE)`). **Granting EXERCISE to a non-trusted operator is equivalent to
-giving them a withdrawal right over your ITM value.** `Perm.TRANSFER` does not gate
-*this function*, but it is not a weaker grant: an operator holding TRANSFER can move
-your longs to itself and exercise them as their own holder, reaching the same ITM
-value by a different route. Both bits are custody-grade; see `Perm`.
-Allowed any time exercise itself is allowed ([canExercise](#option): pre-expiry for American,
-plus the post-expiry window through `exerciseDeadline` for both flavors). Reverts
-`ZeroValue` on a zero `amount`, `Unauthorized` without the grant, and
-`ERC20InsufficientBalance` if `holder` does not hold `amount`; this path never
-partially fills.
+**Dangerous keeper path.** Burn `amount` of `holder`'s Options; the caller pays the
+consideration AND receives the collateral. The holder gets nothing on-chain. Use this
+only when (a) the caller is a contract that will deliver the holder's economic surplus
+off-band (e.g. a flash-loan router that sells the collateral, repays the flash loan
+with the consideration cost, and pays the holder the spread), or (b) the holder
+explicitly intends to gift the exercise value to the caller.
+Authorisation: the caller must be `holder` themselves or hold `Perm.EXERCISE` in the
+holder's factory permission mask. **Granting EXERCISE to a non-trusted operator is
+equivalent to giving them a withdrawal right over your ITM value.** `Perm.TRANSFER`
+does not gate this function, but it is not a weaker grant: an operator holding
+TRANSFER can move your longs to itself and exercise them as their own holder,
+reaching the same ITM value by a different route. Both bits are custody-grade; grant either only to a deployed, audited contract whose code you have read, never to
+an EOA and never to an upgradeable proxy you do not control.
+Allowed any time exercise itself is allowed (pre-expiry for American, plus the
+post-expiry window through `exerciseDeadline` for both flavours). Reverts `ZeroValue`
+on a zero `amount`, `Unauthorized` without the grant, and `ERC20InsufficientBalance`
+if `holder` does not hold `amount`; this path never partially fills. The
+consideration pull reverts with the consideration token's own allowance/balance
+error or `IFactory.FeeOnTransferNotSupported`. Emits `Exercise`.
+
+**NOT PRODUCTION READY:** This pseudocode omits required checks and must not be
+deployed as written. Example of `IOption`'s legitimate-use case (a): a flash-loan
+keeper that pays the holder the ITM spread. Illustrative: imports, the `lender` /
+`dex` addresses and the
+`SlippageExceeded` declaration are elided, and a real keeper must also check
+`msg.sender == lender` in `onFlashLoan`.
+
+Step 6 is the whole guarantee, and nothing in this contract enforces it. A keeper
+that simply omits it keeps the entire ITM value and the holder has no on-chain
+recourse; a revert there would at least undo the exercise. That is why
+`Perm.EXERCISE` must only ever be granted to a deployed, audited contract whose code
+you have read, never to an EOA and never to an upgradeable proxy you do not control.
 
 ---
 
@@ -603,23 +680,23 @@ function exerciseFor(address[] calldata holders, uint256[] calldata amounts) ext
 - `holders` `address[]`: Option holders whose options will be exercised.
 - `amounts` `uint256[]`: Per-holder collateral amounts to exercise; must align 1:1 with `holders` (unequal lengths revert `InvalidValue`).
 
-Batch variant of `exerciseFor(address,uint256)`. Same dangerous semantics; the
-caller pays consideration and receives collateral for every holder. Exercises
-`amounts[i]` of `holders[i]` and emits one [Exercise](#option) per processed entry.
-Three classes of entry are skipped rather than reverting, so one bad row cannot
+Batch variant of `exerciseFor(address,uint256)`. Same dangerous semantics; the caller
+pays consideration and receives collateral for every holder. Exercises `amounts[i]` of
+`holders[i]` and emits one `Exercise` per processed entry.
+Three classes of entry are skipped rather than reverting, so one stale row cannot
 grief the sweep for everyone else: a zero `amounts[i]`, an `amounts[i]` greater than
 `balanceOf(holders[i])` (a holder who has since sold), and a holder who has not
-granted the caller `Perm.EXERCISE`. A batch in which every entry is skipped,
-including an empty array, succeeds as a no-op.
+granted the caller `Perm.EXERCISE`. A batch in which every entry is skipped; an
+empty array included; succeeds as a no-op. Skipping is the ONLY containment:
+`InvalidValue` on a length mismatch, the window checks, and anything that makes the
+Receipt-side exercise revert; notably the caller's own consideration balance or
+factory allowance running out partway down the list; abort the whole batch and roll
+back the holders already processed.
 
-Only the three cases above are skipped. `InvalidValue` on a length mismatch,
-the [canExercise](#option) window checks, and any error from `Receipt.exercise`
-abort the whole batch and roll back holders already processed. Such errors include
-the caller running out of consideration or factory allowance partway through the
-list. A repeated `holders[i]` is exercised once per occurrence, subject to the
-balance check against the balance remaining after the earlier ones.
-Unlike `exerciseFor(address,uint256)` this returns nothing, so on-chain callers
-cannot tell which entries were skipped; read the balances back or watch the events.
+A repeated `holders[i]` is exercised once per occurrence, subject to the balance
+check against the balance remaining after the earlier ones. Unlike
+`exerciseFor(address,uint256)` this returns nothing, so on-chain callers cannot tell
+which entries were skipped; read the balances back or watch the events.
 
 ---
 
@@ -631,38 +708,45 @@ function burn(uint256 amount) public;
 
 - `amount` `uint256`: Collateral-denominated amount to burn from each side.
 
-Burn matched `Option` + `Receipt` pairs to recover the underlying collateral.
+Pair-burn matched Option + Receipt to recover collateral. Shorthand for
+`burn(msg.sender, amount)`. Available at any time; pair-burn nets both sides 1:1 so
+it needs neither the exercise window nor the clock: it stays open past
+`expirationDate` and past `exerciseDeadline`, alongside `IReceipt.redeem` /
+`IReceipt.redeemFor` as a post-window short-side exit. The caller must hold at least
+`amount` of BOTH sides; `amount` of each is burned and `amount` of collateral is
+returned, with no fee. Reverts `ZeroValue` on a zero `amount` and
+`ERC20InsufficientBalance` (raised on the Option first, then the Receipt) when
+either side is short. Emits `PairBurned` from this Option; the paired Receipt emits
+nothing.
 
-Shorthand for `burn(msg.sender, amount)`. Available up to and including
-`exerciseDeadline` (boundary inclusive; same as transfer/exercise). Pair-burn nets
-both sides 1:1 so it does not require the exercise window to be closed, and unlike
-minting it stays open past `expirationDate`. Once `block.timestamp >
-exerciseDeadline` it reverts `ExerciseWindowClosed` and short-side exits must route
-through `Receipt.redeem` / `Receipt.redeemFor`. The caller must hold at least
-`amount` of BOTH sides; the long burn happens first, so a caller holding only the
-short side reverts `ERC20InsufficientBalance` on the option token.
+Shorthand for `burn(msg.sender, amount)`. The caller must hold at least `amount` of
+BOTH sides; the long burn happens first, so a caller holding only the short side
+reverts `ERC20InsufficientBalance` on the option token.
 
 ---
 
 ##### burn(address account, uint256 amount)
 
 ```solidity
-function burn(address account, uint256 amount) public nonReentrant nonZero(amount) beforeDeadline;
+function burn(address account, uint256 amount) public nonReentrant nonZero(amount);
 ```
 
 - `account` `address`: Holder of the matched Option + Receipt pair, and recipient of the collateral.
 - `amount` `uint256`: Collateral-denominated amount to burn from each side.
 
-Burn `amount` matched `Option` + `Receipt` pairs held by `account`, returning the
-underlying collateral to `account`.
+Pair-burn `amount` of `account`'s matched Option + Receipt; collateral returns to
+`account`. No timing gate; valid at any timestamp, before and after expiry. Caller
+must be `account` or hold `Perm.BURN` in `account`'s factory permission mask, else
+`Unauthorized`. Trigger-only grant; the recovered collateral always goes to
+`account`, never to the caller, so a BURN operator can unwind a holder's matched
+position but not extract value from it (it can still choose the *moment*). The
+`ZeroValue` check runs before the authorisation check; balance and event behaviour
+are as in `burn(uint256)`.
 
-The real implementation; `burn(uint256)` is a wrapper. Same timing rules; gated by
-[beforeDeadline](#option), so valid up to and including `exerciseDeadline`. The caller must be
-`account` itself or hold `Perm.BURN` in `account`'s factory permission mask, else
-`Unauthorized`. Trigger-only grant: the recovered collateral always goes to `account`
-(via `Receipt.burn`), never to the caller, so a BURN operator can unwind a holder's
-matched position but not extract value from it. It can still choose the *moment*; and note that the auto-burn leg of [_settledTransfer](#option) gives a BURN grantee a reach
-this function does not have, because there the operator supplies the longs. See `Perm`.
+The real implementation; `burn(uint256)` is a wrapper. No timing gate; valid at any
+timestamp, before and after expiry. Note that the auto-burn leg of
+[_settledTransfer](#option) gives a BURN grantee a reach this function does not have,
+because there the operator supplies the longs. See `Perm`.
 
 ---
 
@@ -672,179 +756,33 @@ this function does not have, because there the operator supplies the longs. See 
 function expire(address holder, uint256 amount) public nonReentrant nonZero(amount);
 ```
 
-- `holder` `address`: Address of the long option holder.
-- `amount` `uint256`: Amount of long option tokens to burn. Must not exceed the holder's balance.
+- `holder` `address`: Address of the long option holder. Must be `msg.sender`.
+- `amount` `uint256`: Amount of long option tokens to burn. Above the holder's balance reverts `ERC20InsufficientBalance`.
 
-Burn expired long option tokens to clean up dust.
+Burn the caller's own expired long tokens (post-`exerciseDeadline` cleanup). Only
+callable strictly after `exerciseDeadline`. Post-deadline a long can no longer be
+exercised, but it still transfers and still pair-burns against a matching Receipt; it is NOT worthless, which is why this is **self-service only**: `msg.sender` must be
+`holder`, and no permission bit reaches here (an operator destroying a long would
+strip the holder's collateral claim instead of returning it via
+`burn(address,uint256)`). Long side only; leaves the Receipt and collateral pool
+untouched. Reverts `ZeroValue` on a zero `amount`, `Unauthorized` for any caller
+other than `holder`, and `NotYetExpired` on or before the deadline, checked in that
+order, so the authorisation check runs BEFORE the timestamp check. Emits `Expire`.
 
-Only callable strictly after `exerciseDeadline`; this is the one mutator that is
-barred *while* the option is live rather than after. Past the deadline an unexercised
-long token is inert: it can no longer be exercised ([canExercise](#option)), transferred or
-pair-burned ([beforeDeadline](#option)), so it would otherwise sit in the holder's wallet
-forever. This burns the long side only; it touches neither collateral nor the paired
-`Receipt`, so it has no effect on the redemption pool or the solvency invariant
-(short-side collateral is recovered separately via `Receipt.redeem`). Reverts
-`NotYetExpired` on or before the deadline; use `burn(address,uint256)` or the
-[exercise](#option) paths while live.
-Caller must be `holder` or hold `Perm.BURN` in the holder's factory permission mask
-(reverts `Unauthorized` otherwise); BURN, not EXERCISE, because this is a pure
-cleanup burn: the tokens are already worthless, so a keeper gains nothing here. The
-authorisation check runs BEFORE the timestamp check, so an unauthorised caller sees
-`Unauthorized` even while the option is still live.
-
-</details>
-
-<details>
-<summary>Events & Errors</summary>
-
-##### Mint
-
-```solidity
-event Mint(address longOption, address holder, uint256 amount);
-```
-
-- `longOption` `address`: The Option contract (always `address(this)`).
-- `holder` `address`: The account credited with the new tokens, and the account whose collateral is pulled to back them.
-- `amount` `uint256`: Collateral-denominated amount (same decimals as the collateral token).
-
-Emitted when new options are minted against fresh collateral; by either [mint](#option)
-overload or by the auto-mint leg of [_settledTransfer](#option), which routes through the
-same `mint_`. A matching `Receipt` is always minted to `holder` alongside.
-
----
-
-##### Exercise
-
-```solidity
-event Exercise(address longOption, address caller, address holder, uint256 amount);
-```
-
-- `longOption` `address`: The Option contract (always `address(this)`).
-- `caller` `address`: The account that initiated the exercise: it pays the consideration and receives the collateral. Equal to `holder` only on the self-exercise paths.
-- `holder` `address`: The account whose options were burned. Receives nothing on-chain when `caller != holder`.
-- `amount` `uint256`: Collateral units delivered to `caller` (consideration collected from `caller` is `toConsideration(amount, true)`, ceil).
-
-Emitted once per exercised holder; by `exerciseFor(address,uint256)`, by the
-[exercise](#option) overloads that delegate to it, and once per processed entry of the batch
-`exerciseFor(address[],uint256[])`.
-
----
-
-##### Expire
-
-```solidity
-event Expire(address longOption, address caller, address holder, uint256 amount);
-```
-
-- `longOption` `address`: The Option contract (always `address(this)`).
-- `caller` `address`: The account that called [expire](#option); the holder themselves, or an operator holding `Perm.BURN` in the holder's factory permission mask.
-- `holder` `address`: The account whose options were burned.
-- `amount` `uint256`: Amount of options burned.
-
-Emitted **only** by an explicit [expire](#option) call; the sole site that emits this event.
-An option passing `exerciseDeadline` emits nothing on its own; expiry is a timestamp
-comparison, not a transaction. Indexers must not treat this as "the option expired",
-only as "someone burned already-worthless long tokens".
-
----
-
-##### ContractExpired
-
-```solidity
-error ContractExpired();
-```
-
-Thrown by [notExpired](#option); the only minting gate; when `block.timestamp >=
-expirationDate`. Reached from both [mint](#option) overloads and from the auto-mint leg of
-[_settledTransfer](#option), so an over-balance transfer between `expirationDate` and
-`exerciseDeadline` reverts with this even though plain transfers are still open.
-
----
-
-##### ZeroValue
-
-```solidity
-error ZeroValue();
-```
-
-Thrown by [nonZero](#option) when `amount == 0`; it guards `mint_` (so both [mint](#option)
-overloads), `exerciseFor(address,uint256)`, `burn(address,uint256)` and [expire](#option); and by [init](#option) when `receipt_` is the zero address. The batch
-`exerciseFor(address[],uint256[])` skips zero entries instead of reverting.
-
----
-
-##### InvalidValue
-
-```solidity
-error InvalidValue();
-```
-
-Thrown when batch `exerciseFor(address[],uint256[])` is given `holders`/`amounts`
-arrays of unequal length. Not used anywhere else.
-
----
-
-##### ExerciseWindowClosed
-
-```solidity
-error ExerciseWindowClosed();
-```
-
-Thrown once `block.timestamp > exerciseDeadline`, by every path that stays open
-through the window: the exercise paths via [canExercise](#option), and [transfer](#option),
-[transferFrom](#option) and `burn(address,uint256)` via [beforeDeadline](#option).
-
----
-
-##### InvalidExercise
-
-```solidity
-error InvalidExercise();
-```
-
-Thrown by [canExercise](#option) when exercise is attempted on a European option before
-`expirationDate`. American options never produce it.
-
----
-
-##### AlreadyInitialized
-
-```solidity
-error AlreadyInitialized();
-```
-
-Thrown when [init](#option) is called on a clone that has already been initialised, or on
-the template (whose `receipt` is set to a sentinel by the constructor).
-
----
-
-##### Unauthorized
-
-```solidity
-error Unauthorized();
-```
-
-Thrown whenever the caller lacks the required grant: [init](#option) called by anyone other
-than the factory, and `mint(address,uint256)`, `exerciseFor(address,uint256)`,
-`burn(address,uint256)` and [expire](#option) called by someone who is neither the owner of
-the position nor a holder of the matching `Perm` bit. The batch
-`exerciseFor(address[],uint256[])` skips such entries instead of reverting.
-
----
-
-##### NotYetExpired
-
-```solidity
-error NotYetExpired();
-```
-
-Thrown when [expire](#option) is called on or before `exerciseDeadline` (the option is still live).
+This is the one mutator that is barred *while* the option is live rather than after.
+Post-deadline a long still transfers and still pair-burns against a matching
+`Receipt`; it is NOT worthless, which is why this is **self-service only**: a
+`Perm.BURN` grantee choosing this over `burn(address,uint256)` would destroy the
+holder's collateral claim instead of returning it, so the bit deliberately does not
+reach here. It touches neither collateral nor the paired `Receipt`, so it has no
+effect on the redemption pool or the solvency invariant (short-side collateral is
+recovered separately via `IReceipt.redeem`).
 
 </details>
 
 ### Receipt
 
-The short side. Escrows the collateral; redeem after the window.
+The short side. Holds settlement pools and redeems short positions.
 
 <details>
 <summary>Functions</summary>
@@ -855,9 +793,11 @@ The short side. Escrows the collateral; redeem after the window.
 IFactory public immutable factory
 ```
 
-Factory that created this option, used to pull tokens against their ERC-20
-allowance to the factory. Set in the template constructor (= the factory that
-deployed it) and inherited by every clone via the template's runtime bytecode.
+The `IFactory` that created this pair, used to pull tokens against their ERC-20
+allowance to it. Its `IFactory.owner` is the `sweep` authority.
+
+Set in the template constructor (= the factory that deployed it) and inherited by
+every clone via the template's runtime bytecode.
 
 ---
 
@@ -867,7 +807,7 @@ deployed it) and inherited by every clone via the template's runtime bytecode.
 uint8 public constant STRIKEDEC = 18
 ```
 
-Decimal basis of the strike; fixed at 18 and independent of token decimals.
+Decimal basis of the strike (always 18).
 
 ---
 
@@ -878,10 +818,46 @@ uint256 public consBacked
 ```
 
 Receipt-units the consideration pool can still back at strike rate. Incremented on
-[exercise](#receipt) (cons inflow) and decremented by the cons leg of [_redeem](#receipt) (cons payout);
-the collateral leg of redeem leaves it untouched. Equal to (total exercised − total
+`exercise` (cons inflow) and decremented by the cons leg of redemption (cons payout);
+the collateral leg of `redeem` leaves it untouched. Equal to (total exercised − total
 cons-redeemed), and never underflows; the cons leg caps its payout at this value.
 Denominated in receipt/collateral units (the cons equivalent is `toConsideration`).
+
+---
+
+##### feeBps
+
+```solidity
+uint64 public feeBps
+```
+
+This market's redeem fee in basis points. Initialized from `Factory.feeBps()` at
+creation and mutable by the Factory owner. Applied to both legs of `redeem`; never to
+exercise or pair burn. Each non-zero fee rounds up to a whole raw token unit, so
+splitting a redemption into dust amounts cannot avoid the fee.
+
+---
+
+##### feeAccrued
+
+```solidity
+mapping(address token => uint256 amount) public feeAccrued
+```
+
+Keyed by token address; only `collateral` and `consideration` are ever populated (the
+two legs of redeem). The fee is NOT transferred on each redeem; it accrues here (a
+cheap SSTORE instead of a per-redeem ERC20 transfer) and is paid out in one shot via
+[collectFees](#receipt). Always pure surplus above the backing the remaining receipts require, so
+collecting can never short the redemption pool. The tallied amount (floor included) is
+physically held here, so it is the fee term of the solvency identity
+`collateral.balanceOf(this) == totalSupply() - consBacked + feeAccrued[collateral]`
+(plus any donation); only [sweep](#receipt), at zero supply, drains it, capping the tally at the
+1-wei floor.
+Gas: [collectFees](#receipt) leaves 1 wei behind rather than zeroing, so once the first accrual
+has paid the one-time zero→non-zero SSTORE (~22k), the slot stays non-zero for the
+option's life and every later accrual is a ~5k non-zero→non-zero write; even right
+after a collect. Real pending fee for a token is therefore `feeAccrued[token] - 1`
+once the floor is set (the stranded 1 wei is recovered by [sweep](#receipt) at end of life).
 
 ---
 
@@ -893,7 +869,7 @@ function strike() public pure returns (uint256);
 
 - Returns `uint256`
 
-Strike price, 18-decimal fixed point (consideration per collateral; inverted for puts).
+Strike price (18-decimal fixed point, consideration per collateral; inverted for puts).
 
 ---
 
@@ -929,7 +905,7 @@ function option() public pure returns (address);
 
 - Returns `address`
 
-The paired `Option` contract. Only this address can call mint / burn / exercise.
+Paired Option contract; the only address authorised to call `mint`/`burn`/`exercise`.
 
 ---
 
@@ -941,10 +917,9 @@ function expirationDate() public pure returns (uint40);
 
 - Returns `uint40`
 
-Unix timestamp at which the option expires and the post-expiry exercise window opens.
-
-Minting stops strictly before this instant (`Option.mint_`'s `notExpired`), and for a
-European option both exercise and the consideration leg of [redeem](#receipt) open at it.
+Unix timestamp at which the option expires and the post-expiry exercise window opens
+(uint40). Minting stops strictly before this instant, and for a European option both
+exercise and the consideration leg of `redeem` open at it.
 
 ---
 
@@ -956,7 +931,8 @@ function exerciseDeadline() public pure returns (uint64);
 
 - Returns `uint64`
 
-Unix timestamp at which the post-expiry exercise window closes.
+Unix timestamp at which the post-expiry exercise window closes (uint64: the
+expiration + window sum can exceed uint40).
 
 Returned as `uint64`: the stored value is `expirationDate + windowSeconds`,
 and that sum can exceed `type(uint40).max` even though each operand is uint40,
@@ -972,7 +948,10 @@ function isPut() public pure returns (bool);
 
 - Returns `bool`
 
-`true` if put, `false` if call.
+`true` if this is a put. A label only: it drives the strike inversion in `name` and
+is part of the registry key, and nothing else; settlement (`toConsideration`,
+`exercise`, `redeem`) uses `strike` as stored and never reads this flag. See
+`IOption.isPut`.
 
 ---
 
@@ -984,14 +963,14 @@ function isEuro() public pure returns (bool);
 
 - Returns `bool`
 
-`true` if European-style.
+`true` if European-style (exercise only allowed in the post-expiry window).
 
 ---
 
 ##### decimals()
 
 ```solidity
-function decimals() public pure override returns (uint8);
+function decimals() public pure override(ERC20, IReceipt) returns (uint8);
 ```
 
 - Returns `uint8`
@@ -1020,14 +999,17 @@ function toConsideration(uint256 amount, bool round) public pure returns (uint25
 ```
 
 - `amount` `uint256`: Collateral units.
-- `round` `bool`: `true` rounds UP, `false` floors. UP for collections from users ([exercise](#receipt)), DOWN for payouts to users (the consideration leg of [_redeem](#receipt)); inverting that pairing is what would let the pool run short. See the Rounding section on the contract.
+- `round` `bool`: `true` rounds up, `false` floors.
 - Returns `uint256`: Consideration units, in the consideration token's own decimals.
 
-Convert a collateral-denominated (equivalently receipt-denominated) amount into the
-consideration due for it at the strike price.
+Strike-rate conversion of a collateral-denominated (equivalently receipt-denominated)
+amount into the consideration due for it. `round=true` rounds UP (used when collecting
+consideration on exercise); `round=false` floors (used for payouts); that pairing
+(ceil in, floor out) is what keeps the consideration pool able to fund every
+redemption it is asked for.
 
 Evaluates `amount * strike * numer / (1e18 * denom)` as one `mulDiv`, so only
-`strike * numer` can overflow. `Factory` rejects any strike that would overflow during creation.
+`strike * numer` can overflow; and `Factory` rejects at creation any strike that would.
 
 ---
 
@@ -1040,25 +1022,32 @@ function toCollateral(uint256 consAmount) public pure returns (uint256);
 - `consAmount` `uint256`
 - Returns `uint256`
 
-Convert a consideration amount to the matching collateral-denominated receipt count.
+Inverse of `toConsideration`; how much collateral a given consideration amount is worth
+(floor by design). Not used internally; exposed for off-chain indexers and
+invariant tests.
 
-Floors by design. No longer used internally; `_redeem` now tracks cons-backed
-receipt-units via the `consBacked` counter; but exposed for off-chain
-indexers and invariant tests that need the inverse of [toConsideration](#receipt).
+Floors by design. Not used on any settlement path: [_redeem](#receipt) tracks cons-backed
+receipt units in `consBacked` rather than converting consideration back. Same
+`strike * numer` product as [toConsideration](#receipt), so the creation-time bound covers it.
 
 ---
 
 ##### name()
 
 ```solidity
-function name() public view override returns (string memory);
+function name() public view override(ERC20, IReceipt) returns (string memory);
 ```
 
 - Returns `string memory`
 
-Human-readable token name in the form `RCT[E]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`.
-The `RCTE-` prefix flags European options, `RCT-` American; note this differs from
-`Option.name`, which spells its flavors `OPTE-` / `OPTA-`.
+ERC20 name in the form `RCT[E]-<coll>-<cons>-<strike>-<YYYY-MM-DD>`. The `RCTE-`
+prefix flags European options, `RCT-` American; note this differs from
+`IOption.name`, which spells its flavours `OPTE-` / `OPTA-`. For puts the displayed
+strike is the human-readable form (`1e36 / strike`), not the stored inverse. If either
+token implements ERC-8056/BEP-677 scaled UI amounts, the displayed strike uses its
+current UI multiplier; tokens without that interface use 1x. The name carries no
+put/call marker, so read `isPut` (or `IOption.details`), never the name, to distinguish
+the markets.
 
 For puts the displayed strike is inverted back (`1e36 / strike`) to the human form.
 `strike` is non-zero for every option `Factory` can create, so the division is safe.
@@ -1068,12 +1057,57 @@ For puts the displayed strike is inverted back (`1e36 / strike`) to the human fo
 ##### symbol()
 
 ```solidity
-function symbol() public view override returns (string memory);
+function symbol() public view override(ERC20, IReceipt) returns (string memory);
 ```
 
 - Returns `string memory`
 
-Same as [name](#receipt). Matching name/symbol keeps wallets and explorers in sync.
+ERC20 symbol; same as `name`. Matching name/symbol keeps wallets and explorers in sync.
+
+---
+
+##### setFee(uint64 feeBps_)
+
+```solidity
+function setFee(uint64 feeBps_) external;
+```
+
+- `feeBps_` `uint64`
+
+Set this market's redeem fee. Callable by the creating Factory during deployment or
+by the current Factory owner afterward. Reverts `InvalidFee` above 1000 bps (10%).
+No timelock is applied.
+
+---
+
+##### transferFrom(address from, address to, uint256 amount)
+
+```solidity
+function transferFrom(address from, address to, uint256 amount) public override(ERC20, IReceipt) returns (bool);
+```
+
+- `from` `address`
+- `to` `address`
+- `amount` `uint256`
+- Returns `bool`
+
+ERC20 transferFrom override. The per-option ERC-20 allowance is skipped entirely when
+`msg.sender` is `from` itself or holds `Perm.TRANSFER_RECEIPT` in `from`'s factory
+permission mask; a blanket approval over the owner's receipts across every option
+this factory has created or will create; otherwise the allowance is spent as usual.
+The short-side mirror of `IOption.transferFrom`'s `Perm.TRANSFER` skip, minus the
+hooks: no auto-mint / auto-burn leg and no deadline gate; a plain balance move, open
+forever. Moving receipts moves the settlement claim itself (`redeem` pays the
+*holder*), which is why the bit is custody-grade; see `Perm`.
+
+Skips `_spendAllowance` when [notAuthorized](#receipt) says it may; i.e. when `msg.sender` is
+`from` itself, or holds `Perm.TRANSFER_RECEIPT` in `from`'s factory permission mask (a
+blanket approval over the owner's receipts across every option this factory has created
+or will create). Otherwise the ordinary per-option ERC-20 allowance is spent. This is
+the short-side mirror of `Option.transferFrom`'s `Perm.TRANSFER` skip, minus the hooks:
+there is no auto-mint / auto-burn leg here and no deadline gate; a plain balance move,
+open forever. Note that moving receipts moves the settlement claim itself (redeem pays
+the *holder*), which is why the bit is custody-grade; see `Perm`.
 
 ---
 
@@ -1083,29 +1117,54 @@ Same as [name](#receipt). Matching name/symbol keeps wallets and explorers in sy
 function redeem() public nonReentrant;
 ```
 
+Redeem the caller's full Receipt balance. Cons-first, FCFS: pays up to `consBacked`
+receipt-units from the consideration pool at strike rate, callable any time the pool
+can cover them (European: reverts `BeforeExerciseWindow` before `expirationDate`).
+Any uncovered remainder is paid 1:1 in collateral **only after** `exerciseDeadline`;
+pre-window, uncovered receipts stay in the caller's balance for later redemption.
+With nothing cons-backed and the collateral leg still shut, the call reverts
+`ExerciseWindowOpen`; pre-window redemption of an unexercised option is not possible.
+The cons leg mirrors the equity-options "buy to close at strike" convention: the
+writer sources consideration from previously-exercised counterparties sitting in the
+pool. FCFS by design; a short who redeems early captures the cons premium earlier
+exercisers paid in, leaving later post-window redeemers with collateral. That
+asymmetry is intentional: it lets shorts lock in the strike-rate exchange the moment
+the pool can fund it, rather than waiting for the window to close.
+###### Dust: a floored consideration payout still burns the receipts
+The consideration leg pays `floor(amount * strike)`. When that floors to ZERO; the
+receipts being redeemed are worth less than one consideration atom; they are burned
+and `consBacked` is still decremented, while NOTHING is transferred. And it is
+forced: the legs are not selectable, so while `consBacked > 0` a redeemer cannot skip
+the consideration leg to reach the collateral one. Redeeming a dust balance therefore
+destroys it for no payout. The loss is bounded; what is destroyed is worth strictly
+less than one consideration atom at the strike price; but it is real, and a caller
+who splits a balance into dust-sized calls repeats it once per call. Redeem in
+amounts that convert to at least one atom.
+###### American options: the consideration pool can be taken by a fresh mint (read this if you write American)
 The queue is keyed on a current receipt balance and nothing else; receipts carry no
 mint timestamp and no assignment tag. For an American option the mint window
-(`block.timestamp < expirationDate`) and this consideration leg overlap, so while
-`consBacked > 0` **anyone** may mint fresh receipts and join the front of the queue,
-including someone who never wrote the option and bore no assignment risk. European
-options are structurally immune: minting stops at `expirationDate` and exercise
-cannot happen before it, so the two windows never overlap.
-In practice the exposure is small and self-limiting, because it needs all of:
-1. a *pre-expiry* exercise (the bulk of exercise happens in the post-expiry window,
-where minting is already closed by `notExpired`, so this attack cannot run);
-2. only partial exercise (if everyone exercised, the pool is fully claimed anyway);
-3. spot then falling back below the strike before `expirationDate`.
-The value a latecomer can take is bounded by how far spot round-trips below the
-strike within the option's remaining life; and since early exercise is only rational
-close to expiry, that remaining life is usually short and the swing correspondingly
-small.
-**The mitigation is proactive redemption, and it is available to you at all times.**
-You already hold receipts, so you are ahead of anyone who must mint first. If spot
-weakens back through the strike after an exercise, redeem; that is precisely the
-"buy to close at strike" trade this leg exists to give you, and taking it both locks
-in your settled cash and empties the pool a latecomer would otherwise draw on.
-Writers who intend to manage a position rather than hold it passively should monitor
-`consBacked` and redeem when the consideration leg is the leg they want.
+(`block.timestamp < expirationDate`), exercise and this consideration leg all
+overlap. So after ANY pre-expiry exercise, while `consBacked > 0`, anyone can do
+`Option.mint(N)` then `redeem(N)` in one transaction: deposit `N` collateral, take
+`min(N, consBacked)` receipt-units of consideration at strike rate (net of `feeBps`),
+and keep `N` freshly minted longs for no premium. Run as a same-block back-run of the
+exercise it is atomic, and **proactive redemption by the assigned writer cannot beat
+it**; the writer's own redeem lands in the same race, one transaction later. The
+back-runner is weakly profitable at any spot (it has swapped collateral for
+consideration at strike and holds free longs against the writer's collateral), so
+every pre-expiry exercise on an American market is an opportunity of this shape
+regardless of where spot goes afterwards. What the writer loses is the assignment
+windfall of that exercise: their receipts back collateral again and are re-exposed to
+the back-runner's longs, so their worst case is the short payoff they originally sold,
+not principal. European options are structurally immune: minting stops at
+`expirationDate` and neither exercise nor this leg opens before it, so the two windows
+never overlap.
+This is the cons-first FCFS design, documented rather than fixed, and it is the
+residual risk of writing American on this protocol. There is no on-chain mitigation.
+Writers who want a guaranteed exit should hold (or buy back) the matching longs and
+pair-burn (`IOption.burn`), which is never queued; writers who manage a position
+should monitor `consBacked` and `IOption.Exercise` and treat a pre-expiry assignment
+as final only once their own redeem has settled.
 
 ---
 
@@ -1115,9 +1174,35 @@ Writers who intend to manage a position rather than hold it passively should mon
 function redeem(uint256 amount) public nonReentrant;
 ```
 
-- `amount` `uint256`: Receipt units to redeem. Reverts `ERC20InsufficientBalance` above the caller's balance; there is no implicit cap to it.
+- `amount` `uint256`: Receipt units to redeem. Before `exerciseDeadline`, the call burns and pays `min(amount, consBacked)`; if that value exceeds the caller's balance, the burn reverts `ERC20InsufficientBalance`. After the deadline, the call attempts to burn the full `amount`, so any over-balance request reaches the same ERC-20 error unless a defensive pool-balance check reverts `InsufficientPool` first. Integrators should bound `amount` by the caller's current balance.
 
-Redeem `amount` of the caller's Receipt. Same semantics as [redeem](#receipt), dust rule included.
+Redeem `amount` of the caller's receipts. Same cons-first semantics as `redeem`,
+dust rule included.
+
+---
+
+##### collectFees(address token)
+
+```solidity
+function collectFees(address token) external nonReentrant;
+```
+
+- `token` `address`: The token to collect (`collateral` or `consideration`).
+
+Pay the accrued redeem fee for a single `token` to the factory owner, leaving a 1-wei
+gas floor. Call once per token (`collateral` and `consideration`); per-token so one
+token's transfer reverting can never strand the other's fee. Permissionless; funds
+always go to the factory owner regardless of caller, so a keeper can poke it but no one
+can redirect the fee. `token`s other than the pair's two are a harmless no-op (they
+never accrue). Unlike `sweep`, callable at any time: accrued fees are pure surplus,
+never part of the backing the outstanding receipts require. Paid to `factory.owner()`
+at call time; the factory cannot be renounced, so there is always a payee.
+
+Per-token so one token's transfer reverting (e.g. a paused/blocklisting leg) can never
+strand the other's accrued fee. `token` is arbitrary but harmless: only `collateral` and
+`consideration` ever carry a non-zero `feeAccrued`, so any other token is a no-op on the
+virgin-slot guard below; no foreign slot is initialised. Leaving 1 wei behind rather than
+zeroing keeps the slot non-zero so future accruals stay ~5k, not ~22k.
 
 ---
 
@@ -1130,21 +1215,25 @@ function sweep(address token, address to) external nonReentrant;
 - `token` `address`: ERC20 to drain. Typically the option's collateral or consideration, but any token is accepted; a `token` this contract holds none of is a no-op (no event).
 - `to` `address`: Recipient of the swept balance. Chosen by the factory owner; must be non-zero.
 
-Sweep any residual `token` balance held by this Receipt to `to`. Callable only by
-the factory owner, and only once every receipt has been burned (`totalSupply == 0`),
-so this can never short the redemption pool; it strictly cleans up rounding
-residue, post-redemption donations, or stray ERC20s sent here by accident.
+Factory-owner dust drain; sweeps this Receipt's whole residual `token` balance to
+`to`, only once every receipt has been burned. Checks run in this order: reverts
+`UnauthorizedCaller` for anyone but the factory owner, then `ZeroValue` for a zero
+`to`, then `OutstandingReceipts` while `totalSupply() != 0`. It can therefore never
+short a live redemption pool; it strictly cleans up rounding residue,
+post-redemption donations, or stray ERC20s sent here by accident. Any uncollected
+redeem fee for `token` leaves with the swept balance (to `to`, without a `Fee`
+event) and `feeAccrued` for it is reset to the 1-wei floor. `FeeCleared` reports the
+cleared amount; call `collectFees` first to pay the fee to the factory owner instead.
 
 `totalSupply() == 0` is the whole guarantee, and it is stronger than it looks: the
 solvency identity makes `consBacked <= totalSupply()`, so an empty supply also means
 nothing is cons-backed and no holder has a claim on either pool. Everything left is
 unowned.
 Two consequences worth planning for. First, this is the one path that moves a token
-other than the pair's own two, and it reports the move as [Redeemed](#receipt); see that event.
-Second, the authority is the factory owner *at call time*: `Ownable.renounceOwnership`
-on the `Factory` sets the owner to `address(0)`, and since no call can arrive from that
-address, every sweepable balance in every Receipt this factory ever created is stranded
-permanently. Renouncing is a decision about this function, not just about the factory.
+other than the pair's own two, and it reports the move as `Swept`; see that event.
+Second, the authority is the factory owner *at call time*, so transferring factory
+ownership moves this right with it. (`Factory.renounceOwnership` is disabled precisely
+because an ownerless factory would strand every sweepable balance forever.)
 
 ---
 
@@ -1156,19 +1245,34 @@ function redeemFor(address[] calldata holders) external nonReentrant;
 
 - `holders` `address[]`: Holders whose receipts to redeem in full.
 
-Keeper-triggered batch redeem. For each holder where the caller holds `Perm.REDEEM`
-in the holder's factory permission mask (or `msg.sender == holder`), the
-holder's full balance is redeemed under [redeem](#receipt) semantics (cons-first; mix only
-post-window). The resulting collateral / consideration go to the **holder**; never to the caller. Unauthorised and zero-balance holders are skipped silently
-so a single stale entry doesn't brick the batch.
-Composability-safe by design: a Receipt held inside an ERC4626 vault, Morpho
-market, or multisig CANNOT be force-*redeemed* by an unauthorised third party
-(the previous permissionless `redeem(address)` variants were removed for exactly
-this reason; they let any caller change a vault's collateral balance out from
-under it). The auto-burn leg of `Option._settledTransfer` upholds the same principle
-for *triggering*: it fires only when the receiver has granted `Perm.BURN` to the
-account that **initiated** the transfer (`msg.sender`, not necessarily the token
-sender `from`), so an unauthorised party cannot start an unwind of a held position.
+Keeper-gated batch redeem. For each holder where the caller holds `Perm.REDEEM` in
+the holder's factory permission mask (or `msg.sender == holder`), the holder's full
+balance is redeemed under `redeem` semantics (cons-first; mix only post-window). The
+resulting collateral / consideration go to the **holder**; never to the caller.
+Unauthorised and zero-balance holders are skipped silently so a single stale entry
+doesn't brick the batch.
+Composability-safe by design: a Receipt held inside an ERC4626 vault, Morpho market,
+or multisig CANNOT be force-redeemed by an unauthorised third party.
+**Reverts are NOT contained.** Only unauthorised and zero-balance holders are
+skipped. Anything that makes the redemption itself revert; `ExerciseWindowOpen`
+when the consideration pool is empty pre-window, `BeforeExerciseWindow` on a
+European option, or the defensive `InsufficientPool`; aborts the WHOLE batch and
+rolls back the holders already processed. Because the cons leg is FCFS, the pool
+empties partway down any long list, so a pre-window batch reverting is the ordinary
+outcome rather than an edge case. Callers should size batches accordingly, or call
+`redeem` per holder if partial progress matters.
+Dust is not skipped, and is the one way this can destroy value: a holder whose
+balance converts to zero consideration is burned for no payout, exactly as in
+`redeem`. A keeper sweeping a long holder list pre-window will do that to every dust
+holder on it.
+
+The composability guarantee is why there is no permissionless `redeem(address)`:
+one would let any caller change a vault's collateral balance out from under it. The
+auto-burn leg of
+`Option._settledTransfer` upholds the same principle for *triggering*: it fires only
+when the receiver has granted `Perm.BURN` to the account that **initiated** the
+transfer (`msg.sender`, not necessarily the token sender `from`), so an unauthorised
+party cannot start an unwind of a held position.
 **It does not control the size.** The guard decides *whether* auto-burn fires; the
 amount is `Math.min(receipt.balanceOf(to), value)`, and `balanceOf` here is a plain
 ERC-20 balance that ANY address can increase by transferring Receipt tokens to `to`; this contract has no transfer restriction and no opt-out for unsolicited shorts. A
@@ -1177,140 +1281,16 @@ inbound Option transfer is fully netted: the vault receives collateral instead o
 long tokens, at a size the stranger chose. Integrators must NOT assume an inbound
 `Option` transfer raises their option balance by the amount transferred; read the
 balance back.
-**Reverts are NOT contained.** Only unauthorised and zero-balance holders are skipped.
-Anything that makes `_redeem` itself revert; [ExerciseWindowOpen](#receipt) when the consideration
-pool is empty pre-window, [BeforeExerciseWindow](#receipt) on a European option, or the defensive
-[InsufficientPool](#receipt); aborts the WHOLE batch and rolls back the holders already
-processed. Because the cons leg is FCFS, the pool empties partway down any long list, so
-a pre-window batch reverting is the ordinary outcome rather than an edge case. Callers
-should size batches accordingly, or call [redeem](#receipt) per holder if partial progress matters.
-Dust is not skipped, and is the one way this can destroy value: a holder whose balance
-converts to zero consideration is burned for no payout, exactly as in [redeem](#receipt). A keeper
-sweeping a long holder list pre-window will do that to every dust holder on it.
 A repeated holder redeems their full balance on the first occurrence; post-window the
 later occurrences hit the zero-balance skip. Pre-window the cons leg caps at
-`consBacked` and can leave a remainder, so a repeat may still redeem again there.
-
-</details>
-
-<details>
-<summary>Events & Errors</summary>
-
-##### Redeemed
-
-```solidity
-event Redeemed(address option, address token, address holder, uint256 amount);
-```
-
-- `option` `address`: The paired Option contract.
-- `token` `address`: The token actually transferred out. Usually `collateral` or `consideration`, but [sweep](#receipt) takes an arbitrary ERC20 and emits this event for it, so an indexer must read this field rather than assume the pair's two tokens; a swept stray token will otherwise be mis-parsed as a redemption in collateral or consideration.
-- `holder` `address`: Recipient of the payout: the redeeming/burning holder, or [sweep](#receipt)'s `to`, which is chosen by the factory owner and need not have held anything.
-- `amount` `uint256`: Token units sent, in `token`'s own decimals.
-
-Emitted on every path that pays tokens OUT of this contract except [exercise](#receipt), whose
-collateral delivery is reported by `Option.Exercise` instead: [burn](#receipt), both legs of
-[_redeem](#receipt) (one event per leg, so a mixed redemption emits twice), and [sweep](#receipt).
-
----
-
-##### UnauthorizedCaller
-
-```solidity
-error UnauthorizedCaller();
-```
-
-Thrown when a privileged path is called by anyone other than the paired `Option`.
-
----
-
-##### ContractExpired
-
-```solidity
-error ContractExpired();
-```
-
-Never thrown by Receipt itself; the pre-expiry mint gate is enforced by the paired
-`Option` (`notExpired` on `mint_`). Declared for ABI/tooling parity.
-
----
-
-##### ZeroValue
-
-```solidity
-error ZeroValue();
-```
-
-Thrown on `amount == 0` (or any derived zero-amount the invariant requires to be positive).
-
----
-
-##### ExerciseWindowClosed
-
-```solidity
-error ExerciseWindowClosed();
-```
-
-Never thrown by Receipt itself; the exercise-deadline gate is enforced by the
-paired `Option` (`canExercise` / `beforeDeadline`). Declared for ABI/tooling parity.
-
----
-
-##### ExerciseWindowOpen
-
-```solidity
-error ExerciseWindowOpen();
-```
-
-Thrown when a post-window-only path is called before the window closes.
-
----
-
-##### BeforeExerciseWindow
-
-```solidity
-error BeforeExerciseWindow();
-```
-
-Thrown when short-side redemption is attempted on a European option before its
-exercise window opens (`block.timestamp < expirationDate`). Mirrors the long-side
-European pre-expiry guard so the revert reason states the schedule explicitly.
-
----
-
-##### OutstandingReceipts
-
-```solidity
-error OutstandingReceipts();
-```
-
-Thrown when [sweep](#receipt) is called while receipts are still outstanding.
-
----
-
-##### InsufficientPool
-
-```solidity
-error InsufficientPool();
-```
-
-Thrown when the consideration or collateral pool cannot fully fund its leg of the
-requested redemption. Both branches are defensive: neither can fire for a caller
-redeeming at most their own balance. The collateral leg is bounded exactly by the
-solvency identity `collateral.balanceOf(this) == totalSupply() - consBacked` (plus any
-donation), and the leg only ever asks for `amount_ - consBacked`. The consideration leg
-pays `floor(k·amount)` with `amount` capped at `consBacked`, out of a pool filled by
-ceil-rounded collections, and `Σceil(k·aᵢ) − Σfloor(k·bⱼ) ≥ floor(k·(Σaᵢ − Σbⱼ))` holds
-identically. What does reach this error is an over-sized request: past
-`exerciseDeadline`, an `amount_` exceeding `totalSupply()` (plus any donated collateral)
-reverts here rather than with `ERC20InsufficientBalance`, because the pool check runs
-before the burn. Redeem no more than `balanceOf(you)`; splitting into smaller amounts is
-not a remedy for anything else.
+`consBacked`, so a first occurrence that leaves a remainder has also emptied the pool,
+and the repeat then reverts `ExerciseWindowOpen` and aborts the whole batch.
 
 </details>
 
 ### Factory
 
-Creates options; holds token approvals and permission grants.
+Creates options, routes token pulls, stores permissions, and sets the new-market fee.
 
 <details>
 <summary>Functions</summary>
@@ -1321,8 +1301,8 @@ Creates options; holds token approvals and permission grants.
 uint40 public constant DEFAULT_EXERCISE_WINDOW = 8 hours
 ```
 
-Informational suggested-default for the post-expiry exercise window. The contract
-NEVER substitutes this value; `CreateParams.windowSeconds` is taken literally.
+Informational suggested-default window length (frontend convenience). The contract
+does NOT consult this; `CreateParams.windowSeconds` is always taken literally.
 Exposed so frontends can read a canonical "8 hours" without hardcoding it.
 
 ---
@@ -1330,109 +1310,249 @@ Exposed so frontends can read a canonical "8 hours" without hardcoding it.
 ##### receipts
 
 ```solidity
-mapping(address => bool) public receipts
+mapping(address receipt => bool created) public receipts
 ```
-
-`true` if the address is a Receipt clone this factory created. Doubles as the auth
-gate for [transferFrom](#factory); only registered Receipts can pull collateral/consideration.
-Validate an Option by reading its `receipt()` and confirming
-`factory.receipts(rec) && Receipt(rec).option() == opt`.
 
 ---
 
 ##### optionFor
 
 ```solidity
-mapping(bytes32 => address) public optionFor
+mapping(bytes32 key => address option) public optionFor
 ```
 
-Canonical Option address for a given set of economic params, keyed by [optionKey](#factory).
-`address(0)` means no option with those params exists yet. [createOption](#factory) is
-get-or-create: a second call with economically-identical params returns the existing
-Option instead of deploying a duplicate, so identical markets stay canonical/deduped
-and existence is queryable on-chain. [createOption2](#factory) deduplicates the same way but is
-strict about it; with a non-zero salt a registry hit reverts [OptionExists](#factory) rather
-than returning an address the caller did not mine.
-Write-once: an entry is never cleared or overwritten, so the canonical address for a
-given key is fixed for the life of the factory.
+Write-once: an entry is never cleared or overwritten. [createOption2](#factory) deduplicates the
+same way [createOption](#factory) does but is strict about it; with a non-zero salt a registry
+hit reverts `OptionExists` rather than returning an address the caller did not mine.
 
 ---
 
 ##### permissions
 
 ```solidity
-mapping(address => mapping(address => uint256)) public permissions
+mapping(address account => mapping(address operator => uint256 mask)) public permissions
 ```
-
-Permission table: `permissions[owner][operator] -> bitmask` of `Perm` flags.
-One row per (owner, operator) pair covering every option this factory created:
-TRANSFER (1), MINT (2), BURN (4), REDEEM (8), EXERCISE (16). The self entry
-`permissions[account][account]` holds the account's own auto-mint opt-in
-(MINT = auto-mint on shortfall); auto-burn reads `permissions[to][msg.sender]`, the
-receiver's grant to the transfer's initiator, so the self entry applies there only
-when the two are the same account. See `Perm` for the full semantics and risk notes
-per bit.
-Testing a grant: for a multi-bit `mask` the ALL and ANY forms differ, and picking the
-wrong one fails open. Spell out whichever you mean:
-holds every bit: `permissions(o, op) & mask == mask`
-holds any bit:   `permissions(o, op) & mask != 0`
 
 ---
 
-##### optionKey(CreateParams memory p)
+##### feeBps
 
 ```solidity
-function optionKey(CreateParams memory p) public pure returns (bytes32);
+uint64 public feeBps
 ```
 
-- `p` `CreateParams`: The `CreateParams` to key.
-- Returns `bytes32`: The `keccak256` registry key.
+Protocol fee in basis points, skimmed from both legs (consideration and collateral)
+of `IReceipt.redeem` only; never on exercise and never on pair-burn. This is the
+default used to initialize newly-created Receipts; each Receipt stores its own mutable
+rate and can be repriced by `IReceipt.setFee`. `0` means no fee. Accrued fees are paid
+to `owner` via `IReceipt.collectFees`. Capped at 1000 (10%) by `setFee`.
 
-Deterministic registry key for a set of economic params. All seven `CreateParams`
-fields are economic identity, so every one is folded into the hash; two params that
-differ in any field produce different keys (and therefore distinct option markets).
+---
+
+##### owner()
+
+```solidity
+function owner() public view override(Ownable, IFactory) returns (address);
+```
+
+- Returns `address`: The current owner; never `address(0)`.
+
+The `Ownable` owner. Its reach into the protocol: `setFee` (≤ 10 %, used as the
+default during market initialization; `IReceipt.setFee` can reprice a live market),
+`IReceipt.sweep` (gated on `totalSupply() == 0`) and receiving `IReceipt.collectFees`.
+It cannot withdraw holder backing. `renounceOwnership` is disabled
+(`OwnershipNotRenounceable`) because an ownerless factory would strand every accrued
+fee and sweepable balance in every Receipt it ever created.
+
+---
+
+##### renounceOwnership()
+
+```solidity
+function renounceOwnership() public pure override;
+```
+
+Disabled. `Receipt.collectFees` pays `owner()` and `Receipt.sweep` is gated on it, so
+an ownerless factory would strand fees and residue in every Receipt it ever created.
+
+---
+
+##### optionKey(CreateParams calldata p)
+
+```solidity
+function optionKey(CreateParams calldata p) public pure returns (bytes32);
+```
+
+- `p` `CreateParams`: The params to key; not validated, so a key exists for params `createOption` would reject.
+- Returns `bytes32`: `keccak256(abi.encode(...))` of the seven fields in declaration order.
+
+Deterministic registry key for a set of economic params. Folds in all seven
+`CreateParams` fields; differing in any field yields a different key (and therefore a
+distinct option market).
 
 `public pure` so off-chain callers and tests can compute the key and look up
 `optionFor` without a creation tx.
 
 ---
 
-##### createOption(CreateParams memory p)
+##### createOption(CreateParams calldata p)
 
 ```solidity
-function createOption(CreateParams memory p) public nonReentrant nonZero(p.strike) returns (address option_);
+function createOption(CreateParams calldata p) public returns (address);
 ```
 
-- `p` `CreateParams`: See `CreateParams`: - `collateral`, `consideration`: ERC20 addresses; must differ. Standard ERC-20 only; no fee-on-transfer or rebasing tokens. - `expirationDate`: unix timestamp; must be strictly greater than `block.timestamp`. - `strike`: 18-decimal fixed point (consideration per collateral, inverted for puts). Must be non-zero, and when `consDec > collDec` must also satisfy the GRK-3 bound `strike <= type(uint256).max / 10**(consDec - collDec)`. - `isPut`: option flavor. - `isEuro`: `true` for European (no pre-expiry exercise), `false` for American. - `windowSeconds`: post-expiry exercise window length in seconds; taken literally (no contract-side default). American allows `0` (no extension); European requires `> 0`.
-- Returns `option_` `address`: The canonical `Option` address; either freshly deployed, or the existing option if an economically-identical one already exists (get-or-create; see `optionFor`).
+- `p` `CreateParams`
+- Returns `address`: The canonical Option address; either freshly deployed, or the existing option if an economically-identical one already exists.
 
-Deploy a new Option + Receipt pair. Emits [OptionCreated](#factory).
-
-Option is an EIP-1167 clone; Receipt is a clone-with-immutable-args (per-option
-strike, decimals, dates, etc. baked into the clone's runtime bytecode).
+Create a new Option + Receipt pair per the given parameters, or return the existing
+canonical Option if one with economically-identical params already exists
+(get-or-create; see `optionFor`). Emits `OptionCreated` on a fresh deploy only; a
+registry hit returns the existing address with no event, so a script waiting on
+`OptionCreated` for a market that already exists waits forever. The struct-field checks
+(strike non-zero, tokens, expiry, European window) run BEFORE the registry lookup, so
+naming an existing market whose `expirationDate` has passed reverts `InvalidValue`
+rather than returning it; use `optionFor` with `optionKey` for a pure lookup. The
+token-dependent checks (`decimals() <= 36`, the strike bound) run only on a fresh
+deploy, since a registry hit already passed them.
 ⚠ `collateral` and `consideration` MUST be standard ERC-20 tokens with exact,
 balance-preserving transfers. Fee-on-transfer and rebasing / elastic-supply tokens are
-NOT supported and will corrupt the option's 1:1 accounting (see the contract-level
-"Supported tokens" note). There is no creation-time guard against this; the caller is
-responsible for only pairing standard tokens.
+NOT supported and will corrupt the option's 1:1 accounting. There is no creation-time
+guard against this; the caller is responsible for only pairing standard tokens.
+
+Option is an EIP-1167 clone; Receipt is a clone-with-immutable-args (per-option
+strike, decimals, dates, etc. baked into the clone's runtime bytecode). See
+`CreateParams` for per-field validation and the contract-level "Supported tokens"
+note for the token policy.
 
 ---
 
-##### createOptions(CreateParams[] memory params)
+##### createOption2(CreateParams calldata p, bytes32 optionSalt, bytes32 receiptSalt)
 
 ```solidity
-function createOptions(CreateParams[] memory params) external returns (address[] memory result);
+function createOption2(CreateParams calldata p, bytes32 optionSalt, bytes32 receiptSalt) public nonReentrant returns (address option_);
+```
+
+- `p` `CreateParams`
+- `optionSalt` `bytes32`: CREATE2 salt for the Option clone, or `bytes32(0)` for plain CREATE.
+- `receiptSalt` `bytes32`: CREATE2 salt for the Receipt clone, or `bytes32(0)` for plain CREATE.
+- Returns `option_` `address`: The Option address: the freshly deployed clone, or the existing canonical Option when the salts permit returning it (both zero, or `optionSalt` resolving to it with a zero `receiptSalt`).
+
+CREATE2 form of `createOption`: the Option and Receipt clones land at addresses derived
+from `optionSalt` / `receiptSalt`, allowing vanity addresses mined off-chain. Mine
+`optionSalt` first; the Receipt's init code embeds the resulting Option address.
+Supplying a non-zero salt makes the call STRICT: it returns the address you mined or
+reverts `OptionExists`; it never silently returns a pre-existing Option at some other
+address. The Receipt leg of that check is blunt: ANY non-zero `receiptSalt` against
+an existing market reverts `OptionExists`, even when `optionSalt` resolves to the
+existing Option (the Receipt address is not re-derived on-chain). Pass zero salts (or
+use `createOption`) to accept the canonical Option; a zero salt means "don't mine
+this one" and selects plain CREATE for that clone. Mine both salts or neither: with
+`optionSalt == 0` the Option lands at the factory's next CREATE nonce, which any
+earlier creation shifts, and because the Receipt's init code embeds that address a
+mined `receiptSalt` then resolves to a different address than predicted, with no
+on-chain check.
+Salts are namespaced by the caller: the effective CREATE2 salt is
+`keccak256(msg.sender ‖ salt)`, so a salt one account mines cannot be occupied by
+another. Address prediction is done off-chain (the factory exposes no prediction
+helper and no init-code-hash view):
+`address = keccak256(0xff ‖ factory ‖ keccak256(deployer ‖ salt) ‖ keccak256(initCode))[12:]`,
+where the Option's init code is the EIP-1167 proxy for `OPTION_CLONE` and the
+Receipt's is the clone-with-immutable-args creation code for `RECEIPT_CLONE` with the
+112-byte packed args appended; which embed the resulting Option address (so mine the
+Option salt first).
+
+Naming mirrors the `clone` / `clone2` convention of the underlying clone library.
+Identical to [createOption](#factory) except for the deploy opcode and the strictness a non-zero
+salt adds on a registry hit; same validation, same registry, same event, same
+`Option.init` wiring. With two zero salts the two functions are indistinguishable.
+**Mine `optionSalt` first, then `receiptSalt`; the order is forced.** The Receipt's
+immutable args embed the Option's address, so the Receipt's init code (and therefore its
+address) depends on where the Option landed. The reverse is not true: the Option reaches
+its Receipt through a storage pointer set by `Option.init`, which cannot affect the
+Option's own address. The two searches cannot be parallelised.
+Address prediction is done entirely off-chain (the factory exposes no prediction
+helper and no init-code-hash view). The effective
+CREATE2 salt is namespaced by the caller; `effSalt = keccak256(deployer ‖ salt)`; so
+each attempt is `keccak256(0xff ‖ factory ‖ effSalt ‖ initCodeHash)`: hash
+`deployer ‖ salt` first, then the 85-byte CREATE2 preimage over the clone's init code.
+For the Option, `initCodeHash` is that of the EIP-1167 proxy for `OPTION_CLONE`
+(OpenZeppelin `Clones.predictDeterministicAddress` computes it). For the Receipt,
+tooling must rebuild `ClonesWithImmutableArgs.creation(RECEIPT_CLONE, args)` with
+`args` packed exactly as [_receiptArgs](#factory) does (112 bytes: strike[32] coll[20] cons[20]
+option[20] exp[8] deadline[8] isPut[1] isEuro[1] collDec[1] consDec[1]) and hash the
+result. Vary the
+32 salt bytes per attempt. Budget roughly 16^n attempts for an n-hex-char prefix
+(65,536 expected for 4 chars).
+**Supplying a salt makes this call STRICT.** Get-or-create still deduplicates markets,
+but it will never silently hand back an address you did not mine. If an economically-
+identical Option already exists and `optionSalt` does not resolve to it, the call reverts
+`OptionExists`; any non-zero `receiptSalt` against an existing Option reverts likewise.
+So with a non-zero `optionSalt` this function either returns the address you mined
+(`keccak256(0xff ‖ factory ‖ keccak256(msg.sender ‖ optionSalt) ‖ optionInitCode)`) or
+reverts; never anything else. To take the canonical Option instead, pass zero salts (or
+call [createOption](#factory)); that path is unchanged. Check `optionFor`/[optionKey](#factory) first.
+**Salts are namespaced by `msg.sender`.** The effective CREATE2 salt is
+`keccak256(msg.sender ‖ salt)`, so a salt one account mines lives in that
+account's own namespace and CANNOT be burned by anyone else: a different caller reusing
+the same `salt` value resolves to a different address and never collides with yours.
+(Within a single account, reusing a `salt` already deployed against the same template
+still reverts; the address is occupied; re-mine and retry.) A front-runner on the *same*
+params cannot silently take your address either; see the strictness note above.
+⚠ **Mine BOTH salts or neither.** With `optionSalt == 0` the Option lands via plain CREATE
+at the factory's next nonce, which any unrelated creation in an earlier transaction shifts; and since the Receipt's init code embeds the Option address, a mined `receiptSalt` then
+silently lands elsewhere. That combination cannot be made strict on-chain; it is supported
+only for callers who control transaction ordering.
+**A zero salt means "don't mine this one".** `bytes32(0)` is a sentinel selecting plain
+CREATE for that clone, exactly as [createOption](#factory) would. The two salts are independent, so
+all four combinations are valid; vanity both, vanity neither (identical to
+[createOption](#factory)), or vanity just the Option / just the Receipt. This costs you the ability
+to use `bytes32(0)` as a real CREATE2 salt; that is a deliberate trade, since a mined
+vanity salt is effectively random and will never be zero.
+
+---
+
+##### createOptions(CreateParams[] calldata params)
+
+```solidity
+function createOptions(CreateParams[] calldata params) external returns (address[] memory result);
 ```
 
 - `params` `CreateParams[]`: Array of `CreateParams`.
 - Returns `result` `address[]`: Option addresses aligned with `params`; newly deployed or pre-existing.
 
-Batch form of [createOption](#factory). Same ordering in → same ordering out.
+Batch form of `createOption`. Same ordering in → same ordering out. Get-or-create
+applies per entry; entries are not isolated; one bad entry reverts the whole batch,
+rolling back the entries already processed.
 
-Each entry is a full [createOption](#factory) call, so get-or-create applies per entry: an entry
-naming an existing market yields that market's address and deploys nothing. Entries are
-not isolated; one invalid entry reverts the whole batch, including entries already
-processed.
+Each entry is a full [createOption](#factory) call, so an entry naming an existing market
+yields that market's address and deploys nothing.
+
+---
+
+##### createOptions2(CreateParams[] calldata params, bytes32[] calldata optionSalts, bytes32[] calldata receiptSalts)
+
+```solidity
+function createOptions2(CreateParams[] calldata params, bytes32[] calldata optionSalts, bytes32[] calldata receiptSalts)
+    external
+    returns (address[] memory result);
+```
+
+- `params` `CreateParams[]`: Array of `CreateParams`.
+- `optionSalts` `bytes32[]`: Option-clone CREATE2 salts, aligned with `params`.
+- `receiptSalts` `bytes32[]`: Receipt-clone CREATE2 salts, aligned with `params`.
+- Returns `result` `address[]`: Option addresses aligned with `params`; newly deployed or pre-existing.
+
+Batch form of `createOption2`; salt arrays are positional and must match `params` length
+(else `InvalidValue`). Each entry carries `createOption2`'s full strictness, and a revert
+is not contained: one entry's `OptionExists` rolls back the WHOLE batch, including
+entries already deployed. The salts are not consumed by such a revert. Check `optionFor`
+against `optionKey` for every entry before submitting a large batch.
+
+Mine each pair independently: within one batch, entry `i`'s Receipt salt depends only on
+entry `i`'s Option address, not on any other entry.
+Zero salts fall back to plain CREATE per-clone (see [createOption2](#factory)), so a single batch
+can freely mix mined and unmined entries; pass `bytes32(0)` for any clone you don't want
+a vanity address for, and that entry behaves exactly like [createOption](#factory).
 
 ---
 
@@ -1446,9 +1566,16 @@ function setPermissions(address operator, uint256 mask) external nonZeroAddr(ope
 - `mask` `uint256`: Full replacement mask; must not contain bits outside `Perm.ALL`.
 
 Set `operator`'s permission mask over the caller's positions, overwriting any
-previous mask. `0` revokes everything. Bits: `Perm.TRANSFER` (1), `Perm.MINT` (2),
-`Perm.BURN` (4), `Perm.REDEEM` (8), `Perm.EXERCISE` (16); see `Perm` for what each
-bit authorises and its risk profile.
+previous mask (`0` revokes everything). Bits: `Perm.TRANSFER` (1), `Perm.MINT` (2),
+`Perm.BURN` (4), `Perm.REDEEM` (8), `Perm.EXERCISE` (16), `Perm.TRANSFER_RECEIPT`
+(32). Reverts `InvalidAddress` for a zero `operator` and `InvalidValue` on bits outside
+`Perm.ALL`; see `Perm` for what each bit authorises and its risk profile. Emits
+`PermissionsUpdated` with the stored mask, including when it is unchanged.
+`operator == msg.sender` sets the caller's own automation opt-ins (auto-mint, and
+auto-burn only on transfers the caller both receives and initiates). That self entry
+goes through this same function with no distinct shape, so `setPermissions(self,
+Perm.ALL)` is not a harmless self-initialisation: its `MINT` bit arms auto-mint and
+removes the ERC-20 insufficient-balance revert on every transfer; see `Perm`.
 
 **Intended for audited swap / keeper / vault contracts.** Each bit is an independent
 grant; nothing is implied by another bit. In particular:
@@ -1467,6 +1594,10 @@ into, and can strand them in a naked long. Neither is risk-free. `BURN` also
 authorises the auto-burn leg on transfers the operator initiates into the caller,
 which closes even a **naked short** because the operator supplies the longs; grant
 it only to contracts that do not let third parties pick a transfer's recipient.
+- `TRANSFER_RECEIPT` is the same custody as `TRANSFER`, over the caller's *short*
+positions: `Receipt.transferFrom` skips the ERC-20 allowance for its holder, and
+whoever holds a receipt owns its settlement claim; the operator can move receipts
+to itself and redeem them as its own, without needing `REDEEM`.
 `operator == msg.sender` is the **self entry**: `MINT` opts into auto-mint on
 transfer shortfall; `BURN` opts into auto-burn only on transfers the caller both
 receives and initiates, since that leg reads the receiver's grant to the initiator; netting an inbound transfer from anyone else requires a `BURN` grant to that
@@ -1482,104 +1613,29 @@ function addPermissions(address operator, uint256 mask) external nonZeroAddr(ope
 ```
 
 - `operator` `address`: Address being granted.
-- `mask` `uint256`: Bits to add; must not contain bits outside `Perm.ALL`.
+- `mask` `uint256`: Bits to add; must not contain bits outside `Perm.ALL`. Zero is a no-op.
 
 OR `mask` into `operator`'s existing permission mask (adds bits, never removes).
-Use [setPermissions](#factory) to remove bits or revoke outright.
-
-</details>
-
-<details>
-<summary>Events & Errors</summary>
-
-##### OptionCreated
-
-```solidity
-event OptionCreated(
-    address indexed collateral,
-    address indexed consideration,
-    uint40 expirationDate,
-    uint256 strike,
-    bool isPut,
-    bool isEuro,
-    uint40 windowSeconds,
-    address indexed option,
-    address receipt
-);
-```
-
-Emitted for every newly-created option. NOT emitted when get-or-create returns an
-existing Option; a market's creation event fires exactly once, ever.
+There is no `removePermissions`: the only revoke is `setPermissions(operator, 0)`
+(or a full replacement mask via `setPermissions`). Reverts `InvalidAddress` for a zero
+`operator` and `InvalidValue` on bits outside `Perm.ALL`. `mask == 0` is accepted as a
+no-op that still emits `PermissionsUpdated` with the unchanged mask; do not read
+that event as a revoke.
 
 ---
 
-##### PermissionsUpdated
+##### setFee(uint64 bps)
 
 ```solidity
-event PermissionsUpdated(address indexed owner, address indexed operator, uint256 mask);
+function setFee(uint64 bps) external onlyOwner;
 ```
 
-Emitted whenever `owner`'s permission mask for `operator` changes ([setPermissions](#factory)
-[addPermissions](#factory)). `mask` is the full resulting mask, not a delta.
+- `bps` `uint64`: New fee in basis points; `0` disables the fee.
 
----
-
-##### InvalidAddress
-
-```solidity
-error InvalidAddress();
-```
-
-Thrown when a zero address is supplied where a real one is required (either token at
-creation, `operator` in [setPermissions](#factory) / [addPermissions](#factory)); and also by
-[transferFrom](#factory) when the caller is not a Receipt this factory registered.
-
----
-
-##### InvalidTokens
-
-```solidity
-error InvalidTokens();
-```
-
-Thrown when `collateral == consideration` (no real option pair).
-
----
-
-##### InvalidValue
-
-```solidity
-error InvalidValue();
-```
-
-Thrown when a value param is invalid: strike (zero, or over the GRK-3 decimals-gap
-bound), expiration, window, a token's `decimals()` above 36, a salt array in
-[createOptions2](#factory) whose length does not match `params`, or a permission mask carrying
-bits outside `Perm.ALL`.
-
----
-
-##### OptionExists
-
-```solidity
-error OptionExists(address existing);
-```
-
-Thrown by [createOption2](#factory) / [createOptions2](#factory) when a CREATE2 salt was supplied but an
-economically-identical Option already exists at an address that salt does not resolve
-to. Carries the occupying address so the caller can either accept it (re-submit with
-zero salts, or call [createOption](#factory)) or change the option's economic params. The mined
-salt is NOT consumed by this revert; it stays usable on a different market.
-
----
-
-##### FeeOnTransferNotSupported
-
-```solidity
-error FeeOnTransferNotSupported();
-```
-
-Thrown when a token's transferFrom delivers less than `amount` (fee-on-transfer / rebasing).
+Set the protocol redeem fee in basis points. Owner-only (any other caller reverts
+`OwnableUnauthorizedAccount`); reverts `InvalidValue` above 1000 (10%). Emits `Fee`. Applies only to options created AFTER the call: each
+market initializes its Receipt's storage fee from the current `feeBps`; the Receipt
+owner can later change that market's rate with `IReceipt.setFee`.
 
 </details>
 
@@ -1590,16 +1646,18 @@ Permission bits for `Factory.setPermissions` / `Factory.addPermissions`, from `c
 ```solidity
 uint256 constant TRANSFER = 1 << 0; // 1,  move the owner's Option tokens
 uint256 constant MINT     = 1 << 1; // 2,  mint against the owner's collateral allowance
-uint256 constant BURN     = 1 << 2; // 4,  pair-burn for the owner; burn expired longs
+uint256 constant BURN     = 1 << 2; // 4,  pair-burn for the owner
 uint256 constant REDEEM   = 1 << 3; // 8,  trigger redemption for the owner
 uint256 constant EXERCISE = 1 << 4; // 16, exercise for the owner (caller pays strike, receives collateral)
-uint256 constant ALL      = 31;     // validity bound, not a recommended grant
+uint256 constant TRANSFER_RECEIPT = 1 << 5; // 32, move the owner's Receipt tokens
+uint256 constant ALL      = 63;     // validity bound, not a recommended grant
 ```
 
 - `TRANSFER`: `Option.transferFrom` without a per-option ERC20 allowance.
 - `MINT`: `Option.mint(account, amount)` and the auto-mint transfer leg.
-- `BURN`: `Option.burn(account, amount)`, `Option.expire`, and the auto-burn transfer leg.
+- `BURN`: `Option.burn(account, amount)` and the auto-burn transfer leg.
 - `REDEEM`: `Receipt.redeemFor(holders)`; payout always to the holder.
 - `EXERCISE`: `Option.exerciseFor`; the caller pays the strike and receives the collateral.
+- `TRANSFER_RECEIPT`: `Receipt.transferFrom` without a per-Receipt ERC20 allowance.
 
 {/* API:END */}

@@ -3,9 +3,8 @@
 // docs/reference/api.md. Organised by section headers (Core / Oracles / Interfaces),
 // no nested sidebar.
 //
-// Expects `forge doc --out docs` to have been run from the foundry workspace beforehand
-// (`yarn workspace @greek/foundry docs:gen`). Run via `yarn docs:gen` from the root,
-// which invokes the foundry step then this script.
+// Expects `forge doc --out docs` to have been run from the sibling foundry workspace beforehand.
+// Then run `npm run gen-reference` from this docs checkout.
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -38,13 +37,13 @@ const SECTIONS = [
       {
         from: "Receipt.sol/contract.Receipt.md",
         title: "Receipt",
-        desc: "The short side. Escrows the collateral; redeem after the window.",
+        desc: "The short side. Holds settlement pools and redeems short positions.",
         drop: ["constructor", "mint", "burn", "exercise"],
       },
       {
         from: "Factory.sol/contract.Factory.md",
         title: "Factory",
-        desc: "Creates options; holds token approvals and permission grants.",
+        desc: "Creates options, routes token pulls, stores permissions, and sets the new-market fee.",
         drop: [
           "constructor",
           "transferFrom",
@@ -54,8 +53,6 @@ const SECTIONS = [
           "receiptInitCodeHash",
           "addressOfOption2",
           "addressOfReceipt2",
-          "createOption2",
-          "createOptions2",
         ],
       },
     ],
@@ -101,29 +98,46 @@ function renderMembers(md, drop = []) {
   const noGroups = md.replace(/^## .*$\n?/gm, ""); // strip forge's group headers
   const chunks = noGroups.split(/(?=^### )/m);
   const members = [];
-  chunks.forEach((chunk, i) => {
-    if (i === 0 || !chunk.startsWith("### ")) return; // preamble / description prose — dropped
+  for (let i = 1; i < chunks.length; i += 1) {
+    let chunk = chunks[i];
+    if (!chunk.startsWith("### ")) continue; // preamble / description prose; dropped
     const heading = chunk.match(/^### (\S+)/m)?.[1];
-    if (drop.includes(heading)) return; // deploy/factory plumbing
+    if (drop.includes(heading)) continue; // deploy/factory plumbing
     // A member chunk may hold several ```solidity fences: NatSpec usage examples plus
     // the actual declaration. Find the declaration (the fence declaring `heading`);
     // example fences and the prose introducing them are stripped — the reference
     // documents the surface, not keeper recipes.
-    const esc = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const fences = [...chunk.matchAll(/```solidity\n([\s\S]*?)```/g)];
-    if (!fences.length) return; // description subsection, not a member — dropped
-    const decl =
-      fences.find((f) => new RegExp(`(function|event|error|modifier|constructor)\\s+${esc}\\s*\\(`).test(f[1])) ??
-      fences.find((f) => new RegExp(`\\b${esc}\\b`).test(f[1]) && f[1].trim().split("\n").length <= 3) ??
-      fences[0];
+    const findDecl = (text, name) => {
+      const nameEsc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const fences = [...text.matchAll(/```solidity\n([\s\S]*?)```/g)];
+      return (
+        fences.find((f) => new RegExp(`(function|event|error|modifier|constructor)\\s+${nameEsc}\\s*\\(`).test(f[1])) ??
+        fences.find((f) => new RegExp(`\\b${nameEsc}\\b`).test(f[1]) && f[1].trim().split("\n").length <= 3)
+      );
+    };
+    let decl = findDecl(chunk, heading);
+    // NatSpec can contain H3 subsections before a member's declaration. Fold those
+    // chunks into the member instead of mistaking the last subsection for the member.
+    while (!decl && i + 1 < chunks.length) {
+      const next = chunks[i + 1];
+      const nextHeading = next.match(/^### (\S+)/m)?.[1];
+      if (nextHeading && findDecl(next, nextHeading)) break;
+      chunk += next;
+      i += 1;
+      decl = findDecl(chunk, heading);
+    }
+    if (!decl) continue; // contract prose subsection, not a member
     const sig = decl[1];
-    if (/\bmodifier\b/.test(sig) || /\b(internal|private)\b/.test(sig)) return; // not user-facing
+    if (/\bmodifier\b/.test(sig) || /\b(internal|private)\b/.test(sig)) continue; // not user-facing
     let desc = chunk.slice(chunk.indexOf("\n") + 1, decl.index).replace(/```solidity\n[\s\S]*?```/g, "");
     // A worked example's intro line and any commentary after it belong to the stripped
     // example code, not the declaration — cut the description off there.
     const exampleAt = desc.search(/^\s*Example\b/im);
     if (exampleAt !== -1) desc = desc.slice(0, exampleAt);
-    desc = desc.trimEnd();
+    desc = desc
+      .replace(/^### ([^\n]*\([^\n)]*)\n([^\n)]*\))$/gm, "### $1 $2")
+      .replace(/^### /gm, "#### ")
+      .trimEnd();
     const tail = chunk.slice(decl.index + decl[0].length);
     const fn = sig.match(/\bfunction\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)/);
     const headingLine = fn ? `### ${fn[1]}(${fn[2].trim()})` : `### ${heading}`;
@@ -140,7 +154,7 @@ function renderMembers(md, drop = []) {
     else if (/\bfunction\b/.test(sig)) rank = /\b(view|pure)\b/.test(sig) ? 0 : 1;
     else rank = 0; // public state var / constant getter (read)
     members.push({ rank, i, text });
-  });
+  }
   members.sort((a, b) => a.rank - b.rank || a.i - b.i); // stable: keep source order within a bucket
   const render = (list) => list.map((m) => m.text.trim()).join("\n\n---\n\n");
   return {
@@ -254,7 +268,7 @@ async function loadEntry(entry) {
     md = await fs.readFile(src, "utf8");
   } catch (e) {
     if (e.code === "ENOENT") {
-      throw new Error(`[docs:gen] missing ${src} — did you run \`yarn workspace @greek/foundry docs:gen\` first?`);
+      throw new Error(`[docs:gen] missing ${src}; did you run \`forge doc --out docs\` from the sibling foundry checkout first?`);
     }
     throw e;
   }
@@ -263,7 +277,10 @@ async function loadEntry(entry) {
   // the ## API Reference section and the ### contract headings only.
   const { functions, eventsErrors } = renderMembers(stripFirstH1(md), entry.drop);
   // Em-dashes are banned in the docs; NatSpec prose gets them rewritten to semicolons.
-  const post = (s) => shiftHeadings(escapeJsxReferences(rewriteLinks(s)), 2).replace(/\s*—\s*/g, "; ");
+  const post = (s) =>
+    shiftHeadings(escapeJsxReferences(rewriteLinks(s)), 2)
+      .replace(/\s*—\s*/g, "; ")
+      .replace(/``(?=\()/g, "");
   return { functions: post(functions), eventsErrors: post(eventsErrors) };
 }
 
@@ -273,7 +290,7 @@ async function main() {
     "",
     "Auto-generated from the NatSpec in `foundry/contracts/`. Each contract is collapsible; reads",
     "are listed before state-changing functions, with events and errors in their own collapsible.",
-    "Run `yarn docs:gen` from the repo root to refresh.",
+    "Run `npm run gen-reference` from the docs checkout after generating the Forge docs to refresh.",
     "",
   ];
 
@@ -321,17 +338,19 @@ async function main() {
     "```solidity",
     "uint256 constant TRANSFER = 1 << 0; // 1,  move the owner's Option tokens",
     "uint256 constant MINT     = 1 << 1; // 2,  mint against the owner's collateral allowance",
-    "uint256 constant BURN     = 1 << 2; // 4,  pair-burn for the owner; burn expired longs",
+    "uint256 constant BURN     = 1 << 2; // 4,  pair-burn for the owner",
     "uint256 constant REDEEM   = 1 << 3; // 8,  trigger redemption for the owner",
     "uint256 constant EXERCISE = 1 << 4; // 16, exercise for the owner (caller pays strike, receives collateral)",
-    "uint256 constant ALL      = 31;     // validity bound, not a recommended grant",
+    "uint256 constant TRANSFER_RECEIPT = 1 << 5; // 32, move the owner's Receipt tokens",
+    "uint256 constant ALL      = 63;     // validity bound, not a recommended grant",
     "```",
     "",
     "- `TRANSFER`: `Option.transferFrom` without a per-option ERC20 allowance.",
     "- `MINT`: `Option.mint(account, amount)` and the auto-mint transfer leg.",
-    "- `BURN`: `Option.burn(account, amount)`, `Option.expire`, and the auto-burn transfer leg.",
+    "- `BURN`: `Option.burn(account, amount)` and the auto-burn transfer leg.",
     "- `REDEEM`: `Receipt.redeemFor(holders)`; payout always to the holder.",
     "- `EXERCISE`: `Option.exerciseFor`; the caller pays the strike and receives the collateral.",
+    "- `TRANSFER_RECEIPT`: `Receipt.transferFrom` without a per-Receipt ERC20 allowance.",
     "",
   );
 
