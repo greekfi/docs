@@ -5,7 +5,7 @@ import { themes as prismThemes } from "prism-react-renderer";
 const config = {
   title: "Greek",
   tagline: "Fully-collateralized options protocol",
-  favicon: "img/helmet.svg",
+  favicon: "img/greek-helmet.svg",
 
   future: {
     v4: true,
@@ -55,10 +55,9 @@ const config = {
         disableSwitch: true,
       },
       navbar: {
-        title: "Greek",
         logo: {
-          alt: "Greek helmet",
-          src: "img/greek-helmet.svg",
+          alt: "Greek Fi",
+          src: "img/greek-logo.svg",
         },
         hideOnScroll: false,
         items: [
