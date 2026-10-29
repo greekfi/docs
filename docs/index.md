@@ -215,9 +215,9 @@ These counts include protocol findings only.
 |---|---:|---:|---:|---:|---:|---:|
 | [Cyfrin (PDF)](/audits/cyfrin-audit-report.pdf) | 0 | 0 | 1 | 4 | 9 | 3 |
 | [Quantstamp (PDF)](/audits/quantstamp-final-report.pdf) | 0 | 0 | 0 | 6 | 4 | 0 |
-| [Bailsec (PDF)](/audits/bailsec-final-report.pdf) | – | 0 | 1 | 1 (1*) | 14 (2*) | – |
+| [Bailsec (PDF)](/audits/bailsec-final-report.pdf)\* | – | 0 | 1 | 1 | 14 | – |
 
-\* Findings in Bebop's settlement contracts. Bailsec also reported 2 governance findings on owner privileges. It does not use the Extreme or Gas categories.
+\* Excludes 1 low and 2 informational findings in Bebop's settlement contracts. Bailsec also reported 2 governance findings on owner privileges. It does not use the Extreme or Gas categories.
 
 ### Exercise and redemption
 
